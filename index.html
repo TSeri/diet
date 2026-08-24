@@ -278,8 +278,21 @@ nav button.on{color:var(--accent)}
   <div class="card">
     <h2>データ管理（バックアップ）</h2>
     <p class="hint" style="margin-bottom:10px">データはこの端末のブラウザ内だけに保存されます。機種変更やブラウザのデータ削除に備えて、ときどき書き出してください。</p>
-    <div class="field"><button class="btn sec" id="expJson">JSONで書き出し（バックアップ）</button></div>
-    <div class="field"><button class="btn sec" id="expCsv">CSVで書き出し（表計算用）</button></div>
+    <div class="field">
+      <label>JSON（バックアップ・アプリに読み戻せます）</label>
+      <div class="row">
+        <button class="btn sec" id="expJson">保存</button>
+        <button class="btn sec share-btn" id="shareJson" style="display:none">共有</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>CSV（Excel・Numbers で開く用）</label>
+      <div class="row">
+        <button class="btn sec" id="expCsv">保存</button>
+        <button class="btn sec share-btn" id="shareCsv" style="display:none">共有</button>
+      </div>
+    </div>
+    <p class="hint" id="shareHint" style="display:none;margin-bottom:12px">「共有」はiOSの共有シートを開きます。ファイルApp・メール・LINEなどに直接送れます。</p>
     <div class="field">
       <label for="impFile">JSONを読み込み</label>
       <input type="file" id="impFile" accept="application/json,.json">
@@ -985,16 +998,19 @@ function stamp(){
   var d = new Date();
   return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+"-"+pad(d.getHours())+pad(d.getMinutes());
 }
-$("expJson").addEventListener("click", function(){
-  download("diet-backup-"+stamp()+".json", JSON.stringify(db, null, 2), "application/json;charset=utf-8");
-  toast("書き出しました");
-});
 function csvCell(v){
   if(v==null) return "";
   var s = String(v);
   return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
 }
-$("expCsv").addEventListener("click", function(){
+
+// 書き出す中身を作る（保存・共有で共通）
+function buildJson(){
+  return { name:"diet-backup-"+stamp()+".json",
+           text:JSON.stringify(db, null, 2),
+           mime:"application/json" };
+}
+function buildCsv(){
   var rows = [["種別","日時","体重kg","体脂肪率%","区分","内容","kcal","たんぱく質g","メモ"]];
   db.body.slice().sort(sortDesc).forEach(function(r){
     rows.push(["体組成", new Date(r.dt).toLocaleString("ja-JP"), r.weight, r.fat, "", "", "", "", r.memo]);
@@ -1002,10 +1018,53 @@ $("expCsv").addEventListener("click", function(){
   db.meals.slice().sort(sortDesc).forEach(function(r){
     rows.push(["食事", new Date(r.dt).toLocaleString("ja-JP"), "", "", r.type, r.name, r.kcal, r.protein, r.memo]);
   });
-  var csv = "﻿" + rows.map(function(r){ return r.map(csvCell).join(","); }).join("\r\n");
-  download("diet-"+stamp()+".csv", csv, "text/csv;charset=utf-8");
+  // 先頭のBOMはExcelでの文字化け防止
+  return { name:"diet-"+stamp()+".csv",
+           text:"﻿" + rows.map(function(r){ return r.map(csvCell).join(","); }).join("\r\n"),
+           mime:"text/csv" };
+}
+
+// iOS/Androidの共有シートにファイルを渡せるか
+function canShareFiles(){
+  try{
+    if(!navigator.share || !navigator.canShare || typeof File !== "function") return false;
+    return navigator.canShare({ files:[ new File(["a"], "a.txt", {type:"text/plain"}) ] });
+  }catch(e){ return false; }
+}
+function shareFile(build){
+  var d = build(), file;
+  try{
+    file = new File([d.text], d.name, {type:d.mime});
+  }catch(e){ download(d.name, d.text, d.mime+";charset=utf-8"); return; }
+  if(!navigator.canShare || !navigator.canShare({files:[file]})){
+    download(d.name, d.text, d.mime+";charset=utf-8");
+    toast("共有できないため保存しました");
+    return;
+  }
+  navigator.share({ files:[file], title:d.name })
+    .then(function(){ toast("共有しました"); })
+    .catch(function(err){
+      if(err && (err.name==="AbortError" || err.name==="NotAllowedError")) return; // ユーザーが閉じた
+      download(d.name, d.text, d.mime+";charset=utf-8");
+      toast("共有できないため保存しました");
+    });
+}
+function saveFile(build){
+  var d = build();
+  download(d.name, d.text, d.mime+";charset=utf-8");
   toast("書き出しました");
-});
+}
+
+$("expJson").addEventListener("click", function(){ saveFile(buildJson); });
+$("expCsv").addEventListener("click", function(){ saveFile(buildCsv); });
+$("shareJson").addEventListener("click", function(){ shareFile(buildJson); });
+$("shareCsv").addEventListener("click", function(){ shareFile(buildCsv); });
+
+if(canShareFiles()){
+  $("shareJson").style.display = "";
+  $("shareCsv").style.display = "";
+  $("shareHint").style.display = "";
+}
 
 function readImport(cb){
   var f = $("impFile").files[0];
