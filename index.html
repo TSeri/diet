@@ -304,6 +304,12 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
+    <h2>バージョン</h2>
+    <p class="hint" id="verInfo" style="margin:0 0 10px"></p>
+    <button class="btn sec" id="updBtn">更新を確認</button>
+  </div>
+
+  <div class="card">
     <h2>その他</h2>
     <p class="hint" id="countInfo" style="margin:0 0 10px"></p>
     <button class="btn danger" id="wipe">全データを削除</button>
@@ -327,6 +333,8 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
+var APP_VERSION = "1.1.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_BUILD   = "2026-08-25";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
 
@@ -974,7 +982,56 @@ function renderSettings(){
   $("sK").value = s.kcal==null ? "" : s.kcal;
   $("sP").value = s.protein==null ? "" : s.protein;
   $("countInfo").textContent = "体組成 "+db.body.length+"件 / 食事 "+db.meals.length+"件を保存中";
+  renderVersion();
 }
+function renderVersion(){
+  var el = $("verInfo");
+  var head = "バージョン <b>"+APP_VERSION+"</b>（"+APP_BUILD+"）";
+  if(!("serviceWorker" in navigator) || location.protocol.indexOf("http")!==0){
+    el.innerHTML = head + "<br>オフライン対応：なし（ファイルを直接開いています）";
+    return;
+  }
+  el.innerHTML = head + "<br>オフライン対応：確認中…";
+  navigator.serviceWorker.getRegistration().then(function(reg){
+    el.innerHTML = head + "<br>オフライン対応：" + (reg && reg.active ? "有効" : "準備中（一度開き直してください）");
+  }).catch(function(){
+    el.innerHTML = head;
+  });
+}
+
+// 配信元に新しい版が無いか問い合わせる
+$("updBtn").addEventListener("click", function(){
+  var btn = $("updBtn"), done = false;
+  function finish(msg){
+    if(done) return; done = true;
+    btn.disabled = false; btn.textContent = "更新を確認"; toast(msg);
+  }
+  btn.disabled = true; btn.textContent = "確認中…";
+
+  if(!("serviceWorker" in navigator) || location.protocol.indexOf("http")!==0){
+    finish("この開き方では常に最新です"); return;
+  }
+  navigator.serviceWorker.getRegistration().then(function(reg){
+    if(!reg){ finish("オフライン対応が未登録です"); return; }
+    reg.addEventListener("updatefound", function(){
+      var sw = reg.installing;
+      if(!sw) return;
+      sw.addEventListener("statechange", function(){
+        if(sw.state === "installed"){
+          done = true;
+          toast("新しい版に更新します");
+          setTimeout(function(){ location.reload(); }, 900);
+        }
+      });
+    });
+    reg.update().then(function(){
+      setTimeout(function(){ finish("すでに最新です"); }, 2000);
+    }).catch(function(){
+      finish("確認できませんでした（オフラインかもしれません）");
+    });
+  }).catch(function(){ finish("確認できませんでした"); });
+});
+
 $("sSave").addEventListener("click", function(){
   db.settings = {
     height: num($("sH").value),
