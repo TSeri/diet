@@ -269,6 +269,26 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
+    <h2>歩数</h2>
+    <div class="field">
+      <label for="stDate">日付</label>
+      <div class="dtrow">
+        <input type="date" id="stDate">
+        <button type="button" class="btn sec" id="stYest">前日</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="stVal">歩数</label>
+      <input type="number" id="stVal" inputmode="numeric" step="1" min="0" max="200000" placeholder="8432">
+    </div>
+    <div class="row">
+      <button class="btn" id="stSave">歩数を保存</button>
+      <button class="btn sec" id="stPaste">貼り付け</button>
+    </div>
+    <p class="hint" style="margin-top:8px">iPhoneの「ショートカット」でヘルスケアの歩数をコピーしてから「貼り付け」を押すと取り込めます。同じ日付に保存すると上書きされ、空のまま保存するとその日の記録を消します。</p>
+  </div>
+
+  <div class="card">
     <h2>食事</h2>
     <div id="mealEditBar"></div>
     <div class="field">
@@ -340,6 +360,11 @@ nav button.on{color:var(--accent)}
     <p class="hint" id="kcalHint"></p>
   </div>
   <div class="card">
+    <h2>1日の歩数</h2>
+    <canvas id="stepChart" style="height:180px"></canvas>
+    <p class="hint" id="stepHint"></p>
+  </div>
+  <div class="card">
     <h2>1日の睡眠時間</h2>
     <canvas id="sleepChart" style="height:180px"></canvas>
     <p class="hint" id="sleepHint"></p>
@@ -384,6 +409,10 @@ nav button.on{color:var(--accent)}
         <label for="sP">1日の目標たんぱく質 (g)</label>
         <input type="number" id="sP" inputmode="decimal" step="1" min="0" max="1000" placeholder="100">
       </div>
+    </div>
+    <div class="field">
+      <label for="sSt">1日の目標歩数</label>
+      <input type="number" id="sSt" inputmode="numeric" step="500" min="0" max="200000" placeholder="8000">
     </div>
     <div class="field">
       <label for="sA">1日の純アルコール上限 (g)</label>
@@ -457,7 +486,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.5.4";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.6.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -499,7 +528,8 @@ function pureAlcohol(ml, abv){
 var db = load();
 
 function blank(){
-  return { body: [], meals: [], logs: [], settings: { height:null, goal:null, kcal:null, protein:null, alcLimit:null }, v:1 };
+  return { body: [], meals: [], logs: [], steps: {},
+           settings: { height:null, goal:null, kcal:null, protein:null, alcLimit:null, stepGoal:null }, v:1 };
 }
 function load(){
   try{
@@ -510,6 +540,8 @@ function load(){
     d.body = Array.isArray(d.body) ? d.body : [];
     d.meals = Array.isArray(d.meals) ? d.meals : [];
     d.logs  = Array.isArray(d.logs)  ? d.logs  : [];   // 旧バックアップには無い
+    // 歩数は「日付→歩数」の対応表。同じ日を何度取り込んでも二重にならない
+    d.steps = (d.steps && typeof d.steps === "object" && !Array.isArray(d.steps)) ? d.steps : {};
     d.settings = d.settings || {};
     return d;
   }catch(e){
@@ -915,6 +947,85 @@ function sleepSessions(){
   return out;
 }
 
+/* ---------- 歩数 ---------- */
+// 歩数は1日1件の集計値なので、時刻つきの記録ではなく「日付→歩数」で持つ
+function dayKeyOf(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function todayKey(){ return dayKeyOf(new Date()); }
+function yesterdayKey(){ var d = new Date(); d.setDate(d.getDate()-1); return dayKeyOf(d); }
+function isDayKey(s){ return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s)); }
+function fmtSteps(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+
+function resetStepForm(){
+  $("stDate").value = yesterdayKey();   // 取り込みたいのはたいてい前日ぶん
+  $("stVal").value = db.steps[yesterdayKey()] == null ? "" : db.steps[yesterdayKey()];
+}
+$("stYest").addEventListener("click", function(){
+  $("stDate").value = yesterdayKey();
+  $("stVal").value = db.steps[yesterdayKey()] == null ? "" : db.steps[yesterdayKey()];
+  toast("前日の日付にしました");
+});
+$("stDate").addEventListener("change", function(){
+  var k = $("stDate").value;
+  $("stVal").value = (isDayKey(k) && db.steps[k] != null) ? db.steps[k] : "";
+});
+$("stSave").addEventListener("click", function(){
+  var k = $("stDate").value;
+  if(!isDayKey(k)){ alert("日付を入力してください。"); return; }
+  var raw = $("stVal").value.trim();
+  if(raw === ""){
+    if(db.steps[k] == null){ alert("その日の歩数はまだ記録されていません。"); return; }
+    delete db.steps[k]; save(); renderSummary(); resetStepForm();
+    toast("その日の歩数を削除しました"); return;
+  }
+  var n = num(raw);
+  if(n === null || n < 0 || n > 200000){ alert("歩数は 0〜200000 の範囲で入力してください。"); return; }
+  db.steps[k] = Math.round(n);
+  save(); renderSummary(); resetStepForm();
+  toast(fmtSteps(Math.round(n)) + "歩を記録しました");
+});
+
+// ショートカットでコピーした歩数をクリップボードから取り込む
+$("stPaste").addEventListener("click", function(){
+  if(!navigator.clipboard || !navigator.clipboard.readText){
+    alert("この環境ではクリップボードを読み取れません。歩数欄に直接貼り付けてください。"); return;
+  }
+  navigator.clipboard.readText().then(function(txt){
+    var m = String(txt).replace(/[,\s]/g, "").match(/\d+/);
+    if(!m){ alert("クリップボードに数字が見つかりませんでした。\n\nコピーした内容：" + String(txt).slice(0,60)); return; }
+    var n = parseInt(m[0], 10);
+    if(n > 200000){ alert("読み取った値が大きすぎます（" + n + "）。歩数欄に直接入力してください。"); return; }
+    $("stVal").value = n;
+    toast(fmtSteps(n) + "歩を読み取りました");
+  }).catch(function(){
+    alert("クリップボードを読み取れませんでした。歩数欄を長押しして貼り付けてください。");
+  });
+});
+
+// ?steps=8432&date=2026-08-25 で開かれたときに取り込む（ショートカットから開く用）
+function ingestQuery(){
+  if(!location.search) return;
+  var q;
+  try{ q = new URLSearchParams(location.search); }catch(e){ return; }
+  var raw = q.get("steps");
+  if(raw === null) return;
+
+  var m = String(raw).replace(/[,\s]/g, "").match(/\d+/);
+  var k = q.get("date") || yesterdayKey();
+  if(k === "yesterday") k = yesterdayKey();
+  if(k === "today") k = todayKey();
+
+  if(m && isDayKey(k)){
+    var n = parseInt(m[0], 10);
+    if(n >= 0 && n <= 200000){
+      db.steps[k] = n;
+      save();
+      toast(fmtSteps(n) + "歩（" + fmtDay(k).replace(/（.）/, "") + "）を取り込みました");
+    }
+  }
+  // 再読み込みで二重に処理しないようURLを戻す
+  try{ history.replaceState(null, "", location.pathname); }catch(e){}
+}
+
 /* ---------- サマリー ---------- */
 function bodySorted(){ // 昇順（古い→新しい）
   return db.body.slice().sort(function(a,b){ return a.dt<b.dt?-1:a.dt>b.dt?1:0; });
@@ -1032,6 +1143,18 @@ function renderSummary(){
       esub.join(" ・ ") || "室温 未記録");
   }
 
+  // 歩数：記録があるときだけ
+  var yk = yesterdayKey(), tk2 = todayKey();
+  if(Object.keys(db.steps).length){
+    var yv = db.steps[yk], tv = db.steps[tk2];
+    var ssub = [];
+    if(s.stepGoal) ssub.push("目標 "+fmtSteps(s.stepGoal)+"歩");
+    if(tv != null) ssub.push("今日 "+fmtSteps(tv)+"歩");
+    html += statBox("昨日の歩数", yv==null ? "—" : fmtSteps(yv), yv==null ? "" : "歩",
+      yv==null ? "未取り込み" : (ssub.join(" ・ ") || ""),
+      (yv!=null && s.stepGoal && yv >= s.stepGoal) ? "down" : "");
+  }
+
   // 睡眠：直近の 就寝→起床 のペア
   var ss = sleepSessions();
   if(ss.length){
@@ -1099,6 +1222,7 @@ function renderHistory(){
     if(alc) head.push("酒 "+f1(alc)+"g");
     var slp = sleepByDay()[g.key];
     if(slp) head.push("睡眠 "+f1(slp)+"h");
+    if(db.steps[g.key] != null) head.push(fmtSteps(db.steps[g.key])+"歩");
     return '<div class="daygroup"><div class="dayhead"><span>'+esc(fmtDay(g.key))+"</span><span>"+esc(head.join(" ・ "))+'</span></div><ul class="list">'
       + g.items.map(function(it){ return it.k==="body" ? bodyLi(it.r) : it.k==="meal" ? mealLi(it.r) : logLi(it.r); }).join("")
       + "</ul></div>";
@@ -1482,7 +1606,7 @@ function renderBarChart(cv, hintEl, opt){
     if(!b.v) return;
     var h = b.v/maxV*innerH;
     var x = PL + i*bw + bw*0.15, w = bw*0.7;
-    ctx.fillStyle = (goal && b.v>goal) ? danger : acc;
+    ctx.fillStyle = (goal && !opt.moreIsBetter && b.v>goal) ? danger : acc;
     ctx.globalAlpha = .85;
     ctx.fillRect(x, PT+innerH-h, Math.max(2,w), h);
     ctx.globalAlpha = 1;
@@ -1524,8 +1648,28 @@ function renderKcalChart(){
         + (st.goal ? "（目標 "+st.goal+" kcal）" : "");
     }
   });
+  renderStepChart();
   renderSleepChart();
   renderAlcChart();
+}
+
+function renderStepChart(){
+  var s = db.settings || {};
+  var recs = Object.keys(db.steps).map(function(k){ return { day:k, v:db.steps[k] }; });
+  renderBarChart($("stepChart"), $("stepHint"), {
+    records: recs,
+    dayOf: function(r){ return r.day; },
+    valueOf: function(r){ return r.v; },
+    goal: s.stepGoal,
+    moreIsBetter: true,      // 歩数は目標を超えても警告色にしない
+    emptyMsg: "歩数の記録がありません",
+    emptyHint: "「歩数」カードから入力するか、ショートカットで取り込むと表示されます。",
+    hint: function(st){
+      return "直近"+st.days+"日のうち"+st.hitDays+"日を記録・平均 "+fmtSteps(Math.round(st.avg))+" 歩/日"
+        + (st.goal ? "（目標 "+fmtSteps(st.goal)+" 歩・達成 "
+            + recs.filter(function(r){ return r.v >= st.goal; }).length + "日）" : "");
+    }
+  });
 }
 
 function renderSleepChart(){
@@ -1572,7 +1716,8 @@ function renderSettings(){
   $("sK").value = s.kcal==null ? "" : s.kcal;
   $("sP").value = s.protein==null ? "" : s.protein;
   $("sA").value = s.alcLimit==null ? "" : s.alcLimit;
-  $("countInfo").textContent = "体組成 "+db.body.length+"件 / 食事 "+db.meals.length+"件 / 生活 "+db.logs.length+"件を保存中";
+  $("sSt").value = s.stepGoal==null ? "" : s.stepGoal;
+  $("countInfo").textContent = "体組成 "+db.body.length+"件 / 食事 "+db.meals.length+"件 / 生活 "+db.logs.length+"件 / 歩数 "+Object.keys(db.steps).length+"日ぶんを保存中";
   renderVersion();
   renderBackupInfo();
 }
@@ -1689,7 +1834,8 @@ $("sSave").addEventListener("click", function(){
     goal: num($("sG").value),
     kcal: num($("sK").value),
     protein: num($("sP").value),
-    alcLimit: num($("sA").value)
+    alcLimit: num($("sA").value),
+    stepGoal: num($("sSt").value)
   };
   save(); renderSummary(); renderAlcCalc(); toast("設定を保存しました");
 });
@@ -1719,7 +1865,7 @@ function buildJson(){
   var payload = {
     exportedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
-    body: db.body, meals: db.meals, logs: db.logs, settings: db.settings, v: 1
+    body: db.body, meals: db.meals, logs: db.logs, steps: db.steps, settings: db.settings, v: 1
   };
   return { name:"diet-backup-"+stamp()+".json",
            text:JSON.stringify(payload, null, 2),
@@ -1727,15 +1873,15 @@ function buildJson(){
 }
 function buildCsv(){
   var rows = [["種別","日時","体重kg","体脂肪率%","体温℃","SpO2%","脈拍bpm","天気","室温℃","湿度%",
-               "区分","内容","kcal","たんぱく質g","酒量ml","度数%","純アルコールg","便の状態","睡眠時間h","メモ"]];
+               "区分","内容","kcal","たんぱく質g","酒量ml","度数%","純アルコールg","便の状態","睡眠時間h","歩数","メモ"]];
   db.body.slice().sort(sortDesc).forEach(function(r){
     rows.push(["体組成", new Date(r.dt).toLocaleString("ja-JP"), r.weight, r.fat, r.temp, r.spo2, r.pulse,
                r.weather, r.room, r.humid,
-               "", "", "", "", "", "", "", "", "", r.memo]);
+               "", "", "", "", "", "", "", "", "", "", r.memo]);
   });
   db.meals.slice().sort(sortDesc).forEach(function(r){
     rows.push(["食事", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", "", "", "",
-               r.type, r.name, r.kcal, r.protein, r.ml, r.abv, r.alc, "", "", r.memo]);
+               r.type, r.name, r.kcal, r.protein, r.ml, r.abv, r.alc, "", "", "", r.memo]);
   });
   var hoursByWake = {};
   sleepSessions().forEach(function(x){ hoursByWake[x.wakeId] = Math.round(x.hours*100)/100; });
@@ -1743,7 +1889,12 @@ function buildCsv(){
     rows.push(["生活", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", "", "", "",
                logLabel(r.kind), "", "", "", "", "", "",
                (r.bristol ? r.bristol+" "+BRISTOL[r.bristol] : ""),
-               hoursByWake[r.id]==null ? "" : hoursByWake[r.id], r.memo]);
+               hoursByWake[r.id]==null ? "" : hoursByWake[r.id], "", r.memo]);
+  });
+  Object.keys(db.steps).sort().reverse().forEach(function(k){
+    var p = k.split("-");
+    rows.push(["歩数", +p[0]+"/"+ +p[1] +"/"+ +p[2], "", "", "", "", "", "", "", "",
+               "", "", "", "", "", "", "", "", "", db.steps[k], ""]);
   });
   // 先頭のBOMはExcelでの文字化け防止
   return { name:"diet-"+stamp()+".csv",
@@ -1831,7 +1982,8 @@ function backupSummary(d){
   var when = d.exportedAt ? fmtDateTime(d.exportedAt)+"（"+relDays(d.exportedAt)+"）" : "不明（書き出し日時を持たない古い形式）";
   return "書き出し日時：" + when
     + (d.appVersion ? "\nアプリのバージョン：" + d.appVersion : "")
-    + "\n体組成 " + d.body.length + "件 / 食事 " + d.meals.length + "件 / 生活 " + ((d.logs||[]).length) + "件";
+    + "\n体組成 " + d.body.length + "件 / 食事 " + d.meals.length + "件 / 生活 " + ((d.logs||[]).length)
+    + "件 / 歩数 " + Object.keys(d.steps||{}).length + "日";
 }
 function showImportInfo(d, done){
   var el = $("importInfo");
@@ -1849,6 +2001,7 @@ $("impMerge").addEventListener("click", function(){
     d.body.forEach(function(r){ if(r.id && !ids["b"+r.id]){ db.body.push(r); add++; } });
     d.meals.forEach(function(r){ if(r.id && !ids["m"+r.id]){ db.meals.push(r); add++; } });
     (d.logs||[]).forEach(function(r){ if(r.id && !ids["l"+r.id]){ db.logs.push(r); add++; } });
+    Object.keys(d.steps||{}).forEach(function(k){ if(db.steps[k]==null){ db.steps[k]=d.steps[k]; add++; } });
     save(); renderAll(); showImportInfo(d, add+"件を追加"); toast(add+"件を追加しました");
   });
 });
@@ -1857,7 +2010,7 @@ $("impReplace").addEventListener("click", function(){
     if(!confirm("読み込むバックアップ\n\n" + backupSummary(d)
       + "\n\n現在のデータ（体組成 " + db.body.length + "件 / 食事 " + db.meals.length
       + "件 / 生活 " + db.logs.length + "件）をすべて置き換えます。よろしいですか？")) return;
-    db = { body:d.body, meals:d.meals, logs:d.logs||[], settings:d.settings||{}, v:1 };
+    db = { body:d.body, meals:d.meals, logs:d.logs||[], steps:d.steps||{}, settings:d.settings||{}, v:1 };
     save(); renderAll(); showImportInfo(d, "置き換え完了"); toast("読み込みました");
   });
 });
@@ -1870,12 +2023,14 @@ $("wipe").addEventListener("click", function(){
 /* ---------- 初期化 ---------- */
 function renderAll(){
   renderWeatherSelect(); renderAlcPresets(); renderQuickLog();
-  resetBodyForm(); resetMealForm(); resetLogForm();
+  resetBodyForm(); resetMealForm(); resetLogForm(); resetStepForm();
   renderSummary(); renderHistChips(); renderHistory();
   renderModeChips(); renderRangeChips(); renderSettings();
   if($("view-chart").classList.contains("active")) renderChart();
 }
 renderAll();
+ingestQuery();   // URLに歩数が付いていれば取り込む
+
 try{
   var v = localStorage.getItem(KEY+":view");
   if(views.indexOf(v)>=0) show(v); 
