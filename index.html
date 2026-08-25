@@ -403,7 +403,11 @@ nav button.on{color:var(--accent)}
   <div class="card">
     <h2>バージョン</h2>
     <p class="hint" id="verInfo" style="margin:0 0 10px"></p>
-    <button class="btn sec" id="updBtn">更新を確認</button>
+    <div class="row">
+      <button class="btn sec" id="updBtn">更新を確認</button>
+      <button class="btn sec" id="updCancel" style="display:none">キャンセル</button>
+    </div>
+    <p class="hint" id="updMsg" style="display:none;margin:10px 0 0"></p>
   </div>
 
   <div class="card">
@@ -430,7 +434,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.5.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.5.1";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -1516,37 +1520,96 @@ function renderVersion(){
 }
 
 // 配信元に新しい版が無いか問い合わせる
-$("updBtn").addEventListener("click", function(){
-  var btn = $("updBtn"), done = false;
-  function finish(msg){
-    if(done) return; done = true;
-    btn.disabled = false; btn.textContent = "更新を確認"; toast(msg);
-  }
-  btn.disabled = true; btn.textContent = "確認中…";
+// 更新確認：確認中も、新しい版が見つかったあとも、いつでもやめられる
+var upd = { state:"idle", timer:null, checking:false, bound:false, pending:false };
 
-  if(!("serviceWorker" in navigator) || location.protocol.indexOf("http")!==0){
-    finish("この開き方では常に最新です"); return;
+function updSet(state, msg){
+  upd.state = state;
+  var b = $("updBtn"), c = $("updCancel"), m = $("updMsg");
+  if(state === "checking"){
+    b.disabled = true;  b.textContent = "確認中…";
+    c.style.display = ""; c.textContent = "キャンセル";
+  }else if(state === "found"){
+    b.disabled = false; b.textContent = "今すぐ更新";
+    c.style.display = ""; c.textContent = "あとで";
+  }else{ // idle
+    b.disabled = false; b.textContent = "更新を確認";
+    c.style.display = "none";
   }
+  m.textContent = msg || "";
+  m.style.display = msg ? "" : "none";
+}
+
+function updStop(){
+  upd.checking = false;
+  clearTimeout(upd.timer);
+  upd.timer = null;
+}
+
+function updStartCheck(){
+  // 一度見つけた新しい版を「あとで」にした場合、再確認しても Service Worker は
+  // 更新済みで updatefound が起きない。取得済みであることを覚えておいて出し直す
+  if(upd.pending){
+    updSet("found", "新しい版は取得済みです。「今すぐ更新」で再読み込みします。");
+    return;
+  }
+  if(!("serviceWorker" in navigator) || location.protocol.indexOf("http") !== 0){
+    updSet("idle", "この開き方では常に最新のファイルが読み込まれます。"); return;
+  }
+  updSet("checking");
+  upd.checking = true;
+
   navigator.serviceWorker.getRegistration().then(function(reg){
-    if(!reg){ finish("オフライン対応が未登録です"); return; }
-    reg.addEventListener("updatefound", function(){
-      var sw = reg.installing;
-      if(!sw) return;
-      sw.addEventListener("statechange", function(){
-        if(sw.state === "installed"){
-          done = true;
-          toast("新しい版に更新します");
-          setTimeout(function(){ location.reload(); }, 900);
-        }
+    if(!upd.checking) return;                       // キャンセル済み
+    if(!reg){ updStop(); updSet("idle", "オフライン対応が未登録です。"); return; }
+
+    if(!upd.bound){                                 // リスナーは1度だけ登録する
+      upd.bound = true;
+      reg.addEventListener("updatefound", function(){
+        var sw = reg.installing;
+        if(!sw) return;
+        sw.addEventListener("statechange", function(){
+          if(sw.state !== "installed") return;
+          if(!upd.checking) return;                 // やめたあとなら何もしない
+          updStop();
+          upd.pending = true;
+          updSet("found", "新しい版が見つかりました。「今すぐ更新」で再読み込みします。");
+        });
       });
+    }
+
+    upd.timer = setTimeout(function(){
+      if(!upd.checking) return;
+      updStop();
+      updSet("idle", "すでに最新です。");
+    }, 2500);
+
+    reg.update().catch(function(){
+      if(!upd.checking) return;
+      updStop();
+      updSet("idle", "確認できませんでした（オフラインかもしれません）。");
     });
-    reg.update().then(function(){
-      setTimeout(function(){ finish("すでに最新です"); }, 2000);
-    }).catch(function(){
-      finish("確認できませんでした（オフラインかもしれません）");
-    });
-  }).catch(function(){ finish("確認できませんでした"); });
+  }).catch(function(){
+    if(!upd.checking) return;
+    updStop();
+    updSet("idle", "確認できませんでした。");
+  });
+}
+
+$("updBtn").addEventListener("click", function(){
+  if(upd.state === "found"){ location.reload(); return; }
+  updStartCheck();
 });
+
+$("updCancel").addEventListener("click", function(){
+  var wasFound = (upd.state === "found");
+  updStop();
+  updSet("idle", wasFound
+    ? "更新しませんでした。「更新を確認」を押すか、次にアプリを開き直したときに新しい版になります。"
+    : "確認をやめました。");
+});
+
+updSet("idle");
 
 $("sSave").addEventListener("click", function(){
   db.settings = {
