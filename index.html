@@ -275,6 +275,7 @@ nav button.on{color:var(--accent)}
       <div class="dtrow">
         <input type="date" id="stDate">
         <button type="button" class="btn sec" id="stYest">前日</button>
+        <button type="button" class="btn sec" id="stToday">今日</button>
       </div>
     </div>
     <div class="field">
@@ -486,7 +487,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.6.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.6.1";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -959,11 +960,13 @@ function resetStepForm(){
   $("stDate").value = yesterdayKey();   // 取り込みたいのはたいてい前日ぶん
   $("stVal").value = db.steps[yesterdayKey()] == null ? "" : db.steps[yesterdayKey()];
 }
-$("stYest").addEventListener("click", function(){
-  $("stDate").value = yesterdayKey();
-  $("stVal").value = db.steps[yesterdayKey()] == null ? "" : db.steps[yesterdayKey()];
-  toast("前日の日付にしました");
-});
+function setStepDate(k, label){
+  $("stDate").value = k;
+  $("stVal").value = db.steps[k] == null ? "" : db.steps[k];
+  toast(label + "の日付にしました");
+}
+$("stYest").addEventListener("click", function(){ setStepDate(yesterdayKey(), "前日"); });
+$("stToday").addEventListener("click", function(){ setStepDate(todayKey(), "今日"); });
 $("stDate").addEventListener("change", function(){
   var k = $("stDate").value;
   $("stVal").value = (isDayKey(k) && db.steps[k] != null) ? db.steps[k] : "";
