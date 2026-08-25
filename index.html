@@ -175,7 +175,7 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
-    <h2>体重・体脂肪率</h2>
+    <h2>体組成・バイタル</h2>
     <div id="bodyEditBar"></div>
     <div class="field">
       <label for="bDt">測定日時</label>
@@ -191,11 +191,25 @@ nav button.on{color:var(--accent)}
         <input type="number" id="bF" inputmode="decimal" step="0.1" min="0" max="100" placeholder="22.1">
       </div>
     </div>
+    <div class="row">
+      <div class="field">
+        <label for="bT">体温 (℃)</label>
+        <input type="number" id="bT" inputmode="decimal" step="0.1" min="30" max="45" placeholder="36.5">
+      </div>
+      <div class="field">
+        <label for="bS">SpO₂ (%)</label>
+        <input type="number" id="bS" inputmode="numeric" step="1" min="50" max="100" placeholder="98">
+      </div>
+      <div class="field">
+        <label for="bP">脈拍 (bpm)</label>
+        <input type="number" id="bP" inputmode="numeric" step="1" min="20" max="250" placeholder="62">
+      </div>
+    </div>
     <div class="field">
       <label for="bM">メモ（任意）</label>
       <input type="text" id="bM" placeholder="起床後・トイレ後 など">
     </div>
-    <button class="btn" id="bSave">体組成を記録</button>
+    <button class="btn" id="bSave">記録する</button>
   </div>
 
   <div class="card">
@@ -278,14 +292,11 @@ nav button.on{color:var(--accent)}
 <!-- ========== グラフ ========== -->
 <section class="view" id="view-chart">
   <div class="card">
-    <h2>体重・体脂肪率の推移</h2>
+    <h2 id="chartTitle">体重・体脂肪率の推移</h2>
+    <div class="chips" id="modeChips"></div>
     <div class="chips" id="rangeChips"></div>
     <canvas id="chart"></canvas>
-    <div class="chips" style="margin-top:2px">
-      <span class="chip" style="cursor:default"><b style="color:var(--w)">━</b> 体重</span>
-      <span class="chip" style="cursor:default"><b style="color:var(--f)">━</b> 体脂肪率</span>
-      <span class="chip" style="cursor:default"><b style="color:var(--sub)">┈</b> 7日移動平均</span>
-    </div>
+    <div class="chips" id="chartLegend" style="margin-top:2px"></div>
     <div class="stats" id="chartStats" style="margin-top:10px"></div>
   </div>
   <div class="card">
@@ -405,8 +416,8 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.3.0";      // 更新したらここと sw.js の CACHE を揃える
-var APP_BUILD   = "2026-08-25";
+var APP_VERSION = "1.4.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
 // お酒のプリセット [表示名, 量ml, 度数%]
@@ -519,8 +530,10 @@ var editBodyId = null;
 function resetBodyForm(){
   editBodyId = null;
   $("bDt").value = toLocalInput(new Date());
-  $("bW").value = ""; $("bF").value = ""; $("bM").value = "";
-  $("bSave").textContent = "体組成を記録";
+  $("bW").value = ""; $("bF").value = "";
+  $("bT").value = ""; $("bS").value = ""; $("bP").value = "";
+  $("bM").value = "";
+  $("bSave").textContent = "記録する";
   $("bodyEditBar").innerHTML = "";
 }
 function editBody(id){
@@ -530,6 +543,9 @@ function editBody(id){
   $("bDt").value = toLocalInput(new Date(r.dt));
   $("bW").value = r.weight==null ? "" : r.weight;
   $("bF").value = r.fat==null ? "" : r.fat;
+  $("bT").value = r.temp==null ? "" : r.temp;
+  $("bS").value = r.spo2==null ? "" : r.spo2;
+  $("bP").value = r.pulse==null ? "" : r.pulse;
   $("bM").value = r.memo || "";
   $("bSave").textContent = "この記録を更新";
   $("bodyEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelBody">やめる</button></div>';
@@ -541,16 +557,24 @@ $("bSave").addEventListener("click", function(){
   var d = fromLocalInput($("bDt").value);
   if(!d){ alert("測定日時を入力してください。"); return; }
   var w = num($("bW").value), f = num($("bF").value);
-  if(w===null && f===null){ alert("体重か体脂肪率のどちらかは入力してください。"); return; }
+  var tmp = num($("bT").value), spo = num($("bS").value), pul = num($("bP").value);
+  if(w===null && f===null && tmp===null && spo===null && pul===null){
+    alert("体重・体脂肪率・体温・SpO₂・脈拍のうち、どれか1つは入力してください。"); return;
+  }
   if(w!==null && (w<=0 || w>500)){ alert("体重の値を確認してください。"); return; }
   if(f!==null && (f<0 || f>100)){ alert("体脂肪率は 0〜100 の範囲で入力してください。"); return; }
+  if(tmp!==null && (tmp<30 || tmp>45)){ alert("体温は 30〜45 ℃ の範囲で入力してください。"); return; }
+  if(spo!==null && (spo<50 || spo>100)){ alert("SpO₂ は 50〜100 % の範囲で入力してください。"); return; }
+  if(pul!==null && (pul<20 || pul>250)){ alert("脈拍は 20〜250 bpm の範囲で入力してください。"); return; }
 
   if(editBodyId){
     var r = db.body.find(function(x){ return x.id===editBodyId; });
-    r.dt = d.toISOString(); r.weight = w; r.fat = f; r.memo = $("bM").value.trim();
+    r.dt = d.toISOString(); r.weight = w; r.fat = f;
+    r.temp = tmp; r.spo2 = spo; r.pulse = pul; r.memo = $("bM").value.trim();
     toast("更新しました");
   }else{
-    db.body.push({ id:uid(), dt:d.toISOString(), weight:w, fat:f, memo:$("bM").value.trim() });
+    db.body.push({ id:uid(), dt:d.toISOString(), weight:w, fat:f,
+                   temp:tmp, spo2:spo, pulse:pul, memo:$("bM").value.trim() });
     toast("記録しました");
   }
   save(); resetBodyForm(); renderSummary();
@@ -869,6 +893,22 @@ function renderSummary(){
     html += statBox("今日のお酒", alc===0 ? 0 : f1(alc), "g", asub, acls);
   }
 
+  // 体温：記録があるときだけ
+  var lastT = bodySorted().filter(function(r){ return r.temp!=null; }).pop();
+  if(lastT){
+    var t = lastT.temp;
+    html += statBox("体温", f1(t), "℃",
+      fmtDay(dayKey(lastT.dt)).replace(/（.）/,"")+" "+fmtTime(lastT.dt),
+      t>=37.5 ? "up" : "");
+  }
+  // SpO₂・脈拍
+  var lastS = bodySorted().filter(function(r){ return r.spo2!=null || r.pulse!=null; }).pop();
+  if(lastS){
+    html += statBox("SpO₂", lastS.spo2==null ? "—" : lastS.spo2, lastS.spo2==null ? "" : "%",
+      lastS.pulse==null ? "脈拍 未記録" : "脈拍 "+lastS.pulse+" bpm",
+      (lastS.spo2!=null && lastS.spo2 < 96) ? "up" : "");
+  }
+
   // 睡眠：直近の 就寝→起床 のペア
   var ss = sleepSessions();
   if(ss.length){
@@ -968,6 +1008,9 @@ function bodyLi(r){
   var v = [];
   if(r.weight!=null) v.push("<b>"+f1(r.weight)+"</b> kg");
   if(r.fat!=null) v.push("<b>"+f1(r.fat)+"</b> %");
+  if(r.temp!=null) v.push("<b>"+f1(r.temp)+"</b> ℃");
+  if(r.spo2!=null) v.push("SpO₂ <b>"+r.spo2+"</b>%");
+  if(r.pulse!=null) v.push("脈 <b>"+r.pulse+"</b>");
   return "<li><div class='li-main' data-open='body' data-id='"+r.id+"'><div class='li-t'>"+fmtTime(r.dt)+"</div>"+
     "<div class='li-b'><span class='tag'>体組成</span>"+v.join(" / ")+"</div>"+
     (r.memo ? "<div class='li-n'>"+esc(r.memo)+"</div>" : "")+
@@ -1049,19 +1092,48 @@ function movingAvg(points, days){
   }
   return out;
 }
+// グラフの表示切り替え（左軸・右軸の系列を差し替える）
+var CHART_MODES = {
+  body:  { title:"体重・体脂肪率の推移", label:"体重・体脂肪率",
+           left: {key:"weight", name:"体重",   unit:"kg", cvar:"--w"},
+           right:{key:"fat",    name:"体脂肪率", unit:"%",  cvar:"--f"},
+           ma:true,  goal:function(s){ return s.goal; }, goalLabel:function(g){ return "目標 "+g+"kg"; } },
+  vital: { title:"体温・SpO₂の推移", label:"体温・SpO₂",
+           left: {key:"temp", name:"体温",  unit:"℃", cvar:"--f"},
+           right:{key:"spo2", name:"SpO₂", unit:"%",  cvar:"--w"},
+           ma:false, goal:function(){ return null; }, goalLabel:function(){ return ""; } }
+};
+var chartMode = "body";
+
+function renderModeChips(){
+  $("modeChips").innerHTML = Object.keys(CHART_MODES).map(function(k){
+    return '<button type="button" class="chip'+(k===chartMode?" on":"")+'" data-m="'+k+'">'+esc(CHART_MODES[k].label)+"</button>";
+  }).join("");
+  Array.prototype.forEach.call($("modeChips").children, function(b){
+    b.onclick = function(){ chartMode = b.dataset.m; renderModeChips(); renderChart(); };
+  });
+}
+
 function renderChart(){
+  var cfg = CHART_MODES[chartMode], L = cfg.left, R = cfg.right;
+  $("chartTitle").textContent = cfg.title;
+  $("chartLegend").innerHTML =
+      '<span class="chip" style="cursor:default"><b style="color:var('+L.cvar+')">━</b> '+esc(L.name)+"</span>"
+    + '<span class="chip" style="cursor:default"><b style="color:var('+R.cvar+')">━</b> '+esc(R.name)+"</span>"
+    + (cfg.ma ? '<span class="chip" style="cursor:default"><b style="color:var(--sub)">┈</b> 7日移動平均</span>' : "");
+
   var cv = $("chart");
   var C = setupCanvas(cv, cv.clientHeight || 230);
   var ctx = C.ctx, W = C.w, H = C.h;
-  var fg = cssVar("--fg"), sub = cssVar("--sub"), line = cssVar("--line"),
-      cw = cssVar("--w"), cf = cssVar("--f"), acc = cssVar("--accent");
+  var sub = cssVar("--sub"), line = cssVar("--line"),
+      cw = cssVar(L.cvar), cf = cssVar(R.cvar), acc = cssVar("--accent");
 
   var now = Date.now();
   var from = range ? now - range*86400000 : -Infinity;
   var rows = bodySorted().filter(function(r){ return new Date(r.dt).getTime() >= from; });
 
-  var wp = rows.filter(function(r){ return r.weight!=null; }).map(function(r){ return {t:new Date(r.dt).getTime(), v:r.weight}; });
-  var fp = rows.filter(function(r){ return r.fat!=null; }).map(function(r){ return {t:new Date(r.dt).getTime(), v:r.fat}; });
+  var wp = rows.filter(function(r){ return r[L.key]!=null; }).map(function(r){ return {t:new Date(r.dt).getTime(), v:r[L.key]}; });
+  var fp = rows.filter(function(r){ return r[R.key]!=null; }).map(function(r){ return {t:new Date(r.dt).getTime(), v:r[R.key]}; });
 
   if(!wp.length && !fp.length){
     ctx.fillStyle = sub; ctx.font = "14px -apple-system,sans-serif"; ctx.textAlign="center";
@@ -1079,11 +1151,12 @@ function renderChart(){
   if(t1===t0){ t0 -= 43200000; t1 += 43200000; }
 
   var s = db.settings || {};
+  var goal = cfg.goal(s);
   var wmin, wmax;
   if(wp.length){
     wmin = Math.min.apply(null, wp.map(function(p){return p.v;}));
     wmax = Math.max.apply(null, wp.map(function(p){return p.v;}));
-    if(s.goal!=null){ wmin = Math.min(wmin, s.goal); wmax = Math.max(wmax, s.goal); }
+    if(goal!=null){ wmin = Math.min(wmin, goal); wmax = Math.max(wmax, goal); }
     var padY = Math.max(0.4, (wmax-wmin)*0.15);
     wmin -= padY; wmax += padY;
   }
@@ -1099,12 +1172,11 @@ function renderChart(){
   function YW(v){ return PT + (wmax-v)/(wmax-wmin) * (H-PT-PB); }
   function YF(v){ return PT + (fmax-v)/(fmax-fmin) * (H-PT-PB); }
 
-  // グリッド + 左目盛（体重）
+  // グリッド + 左目盛
   ctx.font = "10px -apple-system,sans-serif";
   ctx.lineWidth = 1;
   if(wp.length){
-    var ticks = niceTicks(wmin, wmax, 4);
-    ticks.forEach(function(v){
+    niceTicks(wmin, wmax, 4).forEach(function(v){
       if(v<wmin||v>wmax) return;
       var y = YW(v);
       ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(PL,y); ctx.lineTo(W-PR,y); ctx.stroke();
@@ -1112,13 +1184,12 @@ function renderChart(){
       ctx.fillText((Math.round(v*10)/10).toFixed(1), PL-6, y);
     });
   }
-  // 右目盛（体脂肪率）
+  // 右目盛
   if(fp.length){
-    var tf = niceTicks(fmin, fmax, 4);
     ctx.fillStyle = cf; ctx.textAlign="left"; ctx.textBaseline="middle";
-    tf.forEach(function(v){
+    niceTicks(fmin, fmax, 4).forEach(function(v){
       if(v<fmin||v>fmax) return;
-      ctx.fillText((Math.round(v*10)/10).toFixed(1)+"%", W-PR+6, YF(v));
+      ctx.fillText((Math.round(v*10)/10).toFixed(1)+R.unit, W-PR+6, YF(v));
     });
   }
 
@@ -1132,12 +1203,12 @@ function renderChart(){
   }
 
   // 目標線
-  if(wp.length && s.goal!=null && s.goal>=wmin && s.goal<=wmax){
+  if(wp.length && goal!=null && goal>=wmin && goal<=wmax){
     ctx.save(); ctx.setLineDash([5,4]); ctx.strokeStyle = acc; ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.moveTo(PL, YW(s.goal)); ctx.lineTo(W-PR, YW(s.goal)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PL, YW(goal)); ctx.lineTo(W-PR, YW(goal)); ctx.stroke();
     ctx.setLineDash([]);
     ctx.font="10px -apple-system,sans-serif"; ctx.textAlign="left"; ctx.textBaseline="bottom";
-    var glbl = "目標 "+s.goal+"kg", gy = YW(s.goal)-3, gw = ctx.measureText(glbl).width;
+    var glbl = cfg.goalLabel(goal), gy = YW(goal)-3, gw = ctx.measureText(glbl).width;
     ctx.fillStyle = cssVar("--card"); ctx.fillRect(PL+2, gy-10, gw+5, 11);
     ctx.fillStyle = acc; ctx.fillText(glbl, PL+4, gy);
     ctx.restore();
@@ -1161,25 +1232,45 @@ function renderChart(){
 
   if(fp.length){ drawSeries(fp, YF, cf, 1.8); drawDots(fp, YF, cf); }
   if(wp.length){
-    if(wp.length>3) drawSeries(movingAvg(wp,7), YW, sub, 1.6, [4,3]);
+    if(cfg.ma && wp.length>3) drawSeries(movingAvg(wp,7), YW, sub, 1.6, [4,3]);
     drawSeries(wp, YW, cw, 2.2); drawDots(wp, YW, cw);
   }
 
   // 期間の統計
   var st = "";
-  if(wp.length){
-    var first = wp[0].v, lastv = wp[wp.length-1].v, delta = r1(lastv-first);
-    var mn = Math.min.apply(null, wp.map(function(p){return p.v;}));
-    var mx = Math.max.apply(null, wp.map(function(p){return p.v;}));
-    var avg = wp.reduce(function(a,p){return a+p.v;},0)/wp.length;
-    st += statBox("期間の増減", (delta>0?"+":"")+f1(delta), "kg", wp.length+"件", delta>0?"up":delta<0?"down":"flat");
-    st += statBox("最小", f1(mn), "kg", "");
-    st += statBox("最大", f1(mx), "kg", "");
-    st += statBox("平均", f1(avg), "kg", "");
-  }
-  if(fp.length){
-    var fd = r1(fp[fp.length-1].v - fp[0].v);
-    st += statBox("体脂肪率の増減", (fd>0?"+":"")+f1(fd), "%", fp.length+"件", fd>0?"up":fd<0?"down":"flat");
+  if(chartMode === "body"){
+    if(wp.length){
+      var delta = r1(wp[wp.length-1].v - wp[0].v);
+      var mn = Math.min.apply(null, wp.map(function(p){return p.v;}));
+      var mx = Math.max.apply(null, wp.map(function(p){return p.v;}));
+      var avg = wp.reduce(function(a,p){return a+p.v;},0)/wp.length;
+      st += statBox("期間の増減", (delta>0?"+":"")+f1(delta), "kg", wp.length+"件", delta>0?"up":delta<0?"down":"flat");
+      st += statBox("最小", f1(mn), "kg", "");
+      st += statBox("最大", f1(mx), "kg", "");
+      st += statBox("平均", f1(avg), "kg", "");
+    }
+    if(fp.length){
+      var fd = r1(fp[fp.length-1].v - fp[0].v);
+      st += statBox("体脂肪率の増減", (fd>0?"+":"")+f1(fd), "%", fp.length+"件", fd>0?"up":fd<0?"down":"flat");
+    }
+  }else{
+    if(wp.length){
+      var tavg = wp.reduce(function(a,p){return a+p.v;},0)/wp.length;
+      var tmax = Math.max.apply(null, wp.map(function(p){return p.v;}));
+      st += statBox("体温 平均", f1(tavg), "℃", wp.length+"件");
+      st += statBox("体温 最高", f1(tmax), "℃", tmax>=37.5 ? "37.5℃以上あり" : "", tmax>=37.5 ? "up" : "");
+    }
+    if(fp.length){
+      var smin = Math.min.apply(null, fp.map(function(p){return p.v;}));
+      var savg = fp.reduce(function(a,p){return a+p.v;},0)/fp.length;
+      st += statBox("SpO₂ 最低", smin, "%", fp.length+"件", smin<96 ? "up" : "");
+      st += statBox("SpO₂ 平均", f1(savg), "%", "");
+    }
+    var pp = rows.filter(function(r){ return r.pulse!=null; });
+    if(pp.length){
+      var pavg = pp.reduce(function(a,r){return a+r.pulse;},0)/pp.length;
+      st += statBox("脈拍 平均", Math.round(pavg), "bpm", pp.length+"件");
+    }
   }
   $("chartStats").innerHTML = st;
 
@@ -1414,20 +1505,20 @@ function buildJson(){
            mime:"application/json" };
 }
 function buildCsv(){
-  var rows = [["種別","日時","体重kg","体脂肪率%","区分","内容","kcal","たんぱく質g",
+  var rows = [["種別","日時","体重kg","体脂肪率%","体温℃","SpO2%","脈拍bpm","区分","内容","kcal","たんぱく質g",
                "酒量ml","度数%","純アルコールg","便の状態","睡眠時間h","メモ"]];
   db.body.slice().sort(sortDesc).forEach(function(r){
-    rows.push(["体組成", new Date(r.dt).toLocaleString("ja-JP"), r.weight, r.fat, "", "", "", "",
-               "", "", "", "", "", r.memo]);
+    rows.push(["体組成", new Date(r.dt).toLocaleString("ja-JP"), r.weight, r.fat, r.temp, r.spo2, r.pulse,
+               "", "", "", "", "", "", "", "", "", r.memo]);
   });
   db.meals.slice().sort(sortDesc).forEach(function(r){
-    rows.push(["食事", new Date(r.dt).toLocaleString("ja-JP"), "", "", r.type, r.name, r.kcal, r.protein,
+    rows.push(["食事", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", r.type, r.name, r.kcal, r.protein,
                r.ml, r.abv, r.alc, "", "", r.memo]);
   });
   var hoursByWake = {};
   sleepSessions().forEach(function(x){ hoursByWake[x.wakeId] = Math.round(x.hours*100)/100; });
   db.logs.slice().sort(sortDesc).forEach(function(r){
-    rows.push(["生活", new Date(r.dt).toLocaleString("ja-JP"), "", "", logLabel(r.kind), "", "", "",
+    rows.push(["生活", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", logLabel(r.kind), "", "", "",
                "", "", "", (r.bristol ? r.bristol+" "+BRISTOL[r.bristol] : ""),
                hoursByWake[r.id]==null ? "" : hoursByWake[r.id], r.memo]);
   });
@@ -1524,7 +1615,7 @@ function renderAll(){
   renderAlcPresets(); renderQuickLog();
   resetBodyForm(); resetMealForm(); resetLogForm();
   renderSummary(); renderHistChips(); renderHistory();
-  renderRangeChips(); renderSettings();
+  renderModeChips(); renderRangeChips(); renderSettings();
   if($("view-chart").classList.contains("active")) renderChart();
 }
 renderAll();
