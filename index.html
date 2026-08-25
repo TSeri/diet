@@ -223,7 +223,10 @@ nav button.on{color:var(--accent)}
       <label for="bM">メモ（任意）</label>
       <input type="text" id="bM" placeholder="起床後・トイレ後 など">
     </div>
-    <button class="btn" id="bSave">記録する</button>
+    <div class="row">
+      <button class="btn" id="bSave">記録する</button>
+      <button class="btn sec" id="bCancel" style="display:none">キャンセル</button>
+    </div>
   </div>
 
   <div class="card">
@@ -249,7 +252,10 @@ nav button.on{color:var(--accent)}
         <label for="lM">メモ（任意）</label>
         <input type="text" id="lM" placeholder="寝つきが悪かった / 快便 など">
       </div>
-      <button class="btn" id="lSave">生活記録を保存</button>
+      <div class="row">
+        <button class="btn" id="lSave">生活記録を保存</button>
+        <button class="btn sec" id="lCancel" style="display:none">キャンセル</button>
+      </div>
     </details>
   </div>
 
@@ -297,7 +303,10 @@ nav button.on{color:var(--accent)}
       <label for="mM">メモ（任意）</label>
       <input type="text" id="mM" placeholder="外食 / 作り置き など">
     </div>
-    <button class="btn" id="mSave">食事を記録</button>
+    <div class="row">
+      <button class="btn" id="mSave">食事を記録</button>
+      <button class="btn sec" id="mCancel" style="display:none">キャンセル</button>
+    </div>
     <p class="hint" id="recentHint" style="display:none">よく使う内容（タップで入力）</p>
     <div class="chips" id="recentChips"></div>
   </div>
@@ -434,7 +443,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.5.1";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.5.2";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -554,6 +563,19 @@ Array.prototype.forEach.call(document.querySelectorAll("nav button"), function(b
   b.addEventListener("click", function(){ show(b.dataset.v); });
 });
 
+/* ---------- 編集の共通処理 ---------- */
+// 編集モードに入ったカードを画面上部に出す。
+// サマリーが長いと、記録タブを開いただけでは入力欄が画面外に残るため。
+function scrollToCard(el){
+  var card = el.closest ? el.closest(".card") : null;
+  var target = card || el;
+  // show() の scrollTo(0,0) が終わってから動かす
+  setTimeout(function(){
+    try{ target.scrollIntoView({block:"start", behavior:"smooth"}); }
+    catch(e){ target.scrollIntoView(true); }
+  }, 0);
+}
+
 /* ---------- 体組成の入力 ---------- */
 var editBodyId = null;
 
@@ -565,6 +587,7 @@ function resetBodyForm(){
   $("bWx").value = ""; $("bR").value = ""; $("bH").value = "";
   $("bM").value = "";
   $("bSave").textContent = "記録する";
+  $("bCancel").style.display = "none";
   $("bodyEditBar").innerHTML = "";
 }
 function editBody(id){
@@ -582,11 +605,14 @@ function editBody(id){
   $("bH").value = r.humid==null ? "" : r.humid;
   $("bM").value = r.memo || "";
   $("bSave").textContent = "この記録を更新";
+  $("bCancel").style.display = "";
   $("bodyEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelBody">やめる</button></div>';
-  $("cancelBody").onclick = resetBodyForm;
+  $("cancelBody").onclick = cancelBodyEdit;
   show("rec");
-  $("bW").focus();
+  scrollToCard($("bodyEditBar"));
 }
+function cancelBodyEdit(){ resetBodyForm(); toast("編集をやめました"); }
+$("bCancel").addEventListener("click", cancelBodyEdit);
 $("bSave").addEventListener("click", function(){
   var d = fromLocalInput($("bDt").value);
   if(!d){ alert("測定日時を入力してください。"); return; }
@@ -670,6 +696,7 @@ function resetMealForm(){
   $("mMl").value=""; $("mAbv").value=""; renderAlcCalc();
   mealType = guessType(); renderTypeChips();
   $("mSave").textContent = "食事を記録";
+  $("mCancel").style.display = "none";
   $("mealEditBar").innerHTML = "";
   renderRecent();
 }
@@ -688,11 +715,14 @@ function editMeal(id){
   mealType = MEAL_TYPES.indexOf(r.type)>=0 ? r.type : MEAL_TYPES[0];
   renderTypeChips();
   $("mSave").textContent = "この記録を更新";
+  $("mCancel").style.display = "";
   $("mealEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelMeal">やめる</button></div>';
-  $("cancelMeal").onclick = resetMealForm;
+  $("cancelMeal").onclick = cancelMealEdit;
   show("rec");
-  $("mN").focus();
+  scrollToCard($("mealEditBar"));
 }
+function cancelMealEdit(){ resetMealForm(); toast("編集をやめました"); }
+$("mCancel").addEventListener("click", cancelMealEdit);
 $("mSave").addEventListener("click", function(){
   var d = fromLocalInput($("mDt").value);
   if(!d){ alert("日時を入力してください。"); return; }
@@ -796,6 +826,7 @@ function resetLogForm(){
   logKind = "wake"; logBristol = null;
   renderLogKindChips(); renderBristolChips();
   $("lSave").textContent = "生活記録を保存";
+  $("lCancel").style.display = "none";
   $("logEditBar").innerHTML = "";
 }
 function editLog(id){
@@ -807,12 +838,15 @@ function editLog(id){
   logKind = r.kind; logBristol = r.bristol || null;
   renderLogKindChips(); renderBristolChips();
   $("lSave").textContent = "この記録を更新";
+  $("lCancel").style.display = "";
   $("logEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelLog">やめる</button></div>';
-  $("cancelLog").onclick = resetLogForm;
+  $("cancelLog").onclick = cancelLogEdit;
   $("logDetail").open = true;
   show("rec");
-  $("logDetail").scrollIntoView({block:"center"});
+  scrollToCard($("logEditBar"));
 }
+function cancelLogEdit(){ resetLogForm(); toast("編集をやめました"); }
+$("lCancel").addEventListener("click", cancelLogEdit);
 $("lSave").addEventListener("click", function(){
   var d = fromLocalInput($("lDt").value);
   if(!d){ alert("日時を入力してください。"); return; }
