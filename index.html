@@ -82,6 +82,19 @@ textarea{min-height:56px;resize:vertical}
 .up{color:var(--danger)} .down{color:var(--accent)} .flat{color:var(--sub)}
 
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.quick{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.quick button{
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:13px 3px;border:1px solid var(--line);border-radius:12px;background:var(--bg);
+  font-size:12px;font-weight:700;color:var(--fg);cursor:pointer;
+}
+.quick button:active{background:var(--accent-soft);border-color:var(--accent)}
+.quick .ic{font-size:22px;line-height:1}
+details{border-top:1px solid var(--line);margin-top:12px}
+details summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:700;padding:10px 0;list-style:none}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"＋ ";font-weight:700}
+details[open] summary::before{content:"− "}
 .chip{
   border:1px solid var(--line);background:var(--bg);color:var(--fg);
   border-radius:999px;padding:5px 11px;font-size:13px;cursor:pointer;
@@ -110,7 +123,7 @@ canvas{width:100%;height:230px;display:block;touch-action:pan-y}
 }
 .daygroup{margin-bottom:12px}
 .dayhead{
-  display:flex;justify-content:space-between;align-items:baseline;
+  display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;
   font-size:12px;font-weight:800;color:var(--sub);padding:6px 2px;border-bottom:2px solid var(--line);
   position:sticky;top:calc(41px + env(safe-area-inset-top));background:var(--card);z-index:5;
 }
@@ -186,6 +199,33 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
+    <h2>生活記録</h2>
+    <div id="logEditBar"></div>
+    <div class="quick" id="quickLog"></div>
+    <p class="hint" style="margin:8px 0 0">タップするとその時刻ですぐ記録します。</p>
+    <details id="logDetail">
+      <summary>時刻を指定する・便の状態を残す</summary>
+      <div class="field">
+        <label for="lDt">日時</label>
+        <input type="datetime-local" id="lDt">
+      </div>
+      <div class="field">
+        <label>種類</label>
+        <div class="chips" id="lKindChips"></div>
+      </div>
+      <div class="field" id="bristolField">
+        <label>便の状態（任意）</label>
+        <div class="chips" id="lBristolChips"></div>
+      </div>
+      <div class="field">
+        <label for="lM">メモ（任意）</label>
+        <input type="text" id="lM" placeholder="寝つきが悪かった / 快便 など">
+      </div>
+      <button class="btn" id="lSave">生活記録を保存</button>
+    </details>
+  </div>
+
+  <div class="card">
     <h2>食事</h2>
     <div id="mealEditBar"></div>
     <div class="field">
@@ -252,6 +292,11 @@ nav button.on{color:var(--accent)}
     <h2>1日の摂取カロリー</h2>
     <canvas id="kcalChart" style="height:180px"></canvas>
     <p class="hint" id="kcalHint"></p>
+  </div>
+  <div class="card">
+    <h2>1日の睡眠時間</h2>
+    <canvas id="sleepChart" style="height:180px"></canvas>
+    <p class="hint" id="sleepHint"></p>
   </div>
   <div class="card">
     <h2>1日のアルコール量（純アルコール）</h2>
@@ -360,7 +405,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.2.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.3.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-25";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -371,6 +416,15 @@ var ALC_PRESETS = [
   ["ワイン120ml", 120, 12],  ["日本酒1合", 180, 15],
   ["焼酎100ml", 100, 25],    ["ウイスキー30ml", 30, 43]
 ];
+// 生活記録の種類 [キー, 表示名, アイコン]
+var LOG_KINDS = [["wake","起床","🌅"],["sleep","就寝","🌙"],["stool","排便","💩"],["urine","排尿","💧"]];
+function logLabel(k){
+  var e = LOG_KINDS.find(function(x){ return x[0]===k; });
+  return e ? e[1] : "生活";
+}
+// ブリストル便形状スケール
+var BRISTOL = ["","コロコロ便","硬い便","やや硬い便","普通便","やや軟らかい便","泥状便","水様便"];
+
 // 純アルコール(g) = 量(ml) × 度数(%)/100 × 比重0.8
 function pureAlcohol(ml, abv){
   if(ml==null || abv==null) return null;
@@ -381,7 +435,7 @@ function pureAlcohol(ml, abv){
 var db = load();
 
 function blank(){
-  return { body: [], meals: [], settings: { height:null, goal:null, kcal:null, protein:null }, v:1 };
+  return { body: [], meals: [], logs: [], settings: { height:null, goal:null, kcal:null, protein:null, alcLimit:null }, v:1 };
 }
 function load(){
   try{
@@ -391,6 +445,7 @@ function load(){
     if(!d || typeof d !== "object") return blank();
     d.body = Array.isArray(d.body) ? d.body : [];
     d.meals = Array.isArray(d.meals) ? d.meals : [];
+    d.logs  = Array.isArray(d.logs)  ? d.logs  : [];   // 旧バックアップには無い
     d.settings = d.settings || {};
     return d;
   }catch(e){
@@ -627,6 +682,102 @@ function renderRecent(){
   });
 }
 
+/* ---------- 生活記録（起床・就寝・排泄） ---------- */
+var editLogId = null;
+var logKind = "wake";
+var logBristol = null;
+
+function renderQuickLog(){
+  $("quickLog").innerHTML = LOG_KINDS.map(function(k){
+    return '<button type="button" data-k="'+k[0]+'"><span class="ic">'+k[2]+"</span>"+k[1]+"</button>";
+  }).join("");
+  Array.prototype.forEach.call($("quickLog").children, function(b){
+    b.onclick = function(){
+      db.logs.push({ id:uid(), dt:new Date().toISOString(), kind:b.dataset.k, bristol:null, memo:"" });
+      save(); renderSummary();
+      toast(logLabel(b.dataset.k)+"を記録しました");
+    };
+  });
+}
+function renderLogKindChips(){
+  $("lKindChips").innerHTML = LOG_KINDS.map(function(k){
+    return '<button type="button" class="chip'+(k[0]===logKind?" on":"")+'" data-k="'+k[0]+'">'+k[2]+" "+k[1]+"</button>";
+  }).join("");
+  Array.prototype.forEach.call($("lKindChips").children, function(b){
+    b.onclick = function(){ logKind = b.dataset.k; renderLogKindChips(); renderBristolChips(); };
+  });
+}
+function renderBristolChips(){
+  // 便の状態は排便のときだけ
+  $("bristolField").style.display = (logKind === "stool") ? "" : "none";
+  var html = "";
+  for(var i=1;i<=7;i++){
+    html += '<button type="button" class="chip'+(logBristol===i?" on":"")+'" data-b="'+i+'">'+i+" "+BRISTOL[i]+"</button>";
+  }
+  $("lBristolChips").innerHTML = html;
+  Array.prototype.forEach.call($("lBristolChips").children, function(b){
+    b.onclick = function(){
+      var v = +b.dataset.b;
+      logBristol = (logBristol === v) ? null : v;   // もう一度押すと解除
+      renderBristolChips();
+    };
+  });
+}
+function resetLogForm(){
+  editLogId = null;
+  $("lDt").value = toLocalInput(new Date());
+  $("lM").value = "";
+  logKind = "wake"; logBristol = null;
+  renderLogKindChips(); renderBristolChips();
+  $("lSave").textContent = "生活記録を保存";
+  $("logEditBar").innerHTML = "";
+}
+function editLog(id){
+  var r = db.logs.find(function(x){ return x.id===id; });
+  if(!r) return;
+  editLogId = id;
+  $("lDt").value = toLocalInput(new Date(r.dt));
+  $("lM").value = r.memo || "";
+  logKind = r.kind; logBristol = r.bristol || null;
+  renderLogKindChips(); renderBristolChips();
+  $("lSave").textContent = "この記録を更新";
+  $("logEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelLog">やめる</button></div>';
+  $("cancelLog").onclick = resetLogForm;
+  $("logDetail").open = true;
+  show("rec");
+  $("logDetail").scrollIntoView({block:"center"});
+}
+$("lSave").addEventListener("click", function(){
+  var d = fromLocalInput($("lDt").value);
+  if(!d){ alert("日時を入力してください。"); return; }
+  var bris = (logKind === "stool") ? logBristol : null;
+  if(editLogId){
+    var r = db.logs.find(function(x){ return x.id===editLogId; });
+    r.dt = d.toISOString(); r.kind = logKind; r.bristol = bris; r.memo = $("lM").value.trim();
+    toast("更新しました");
+  }else{
+    db.logs.push({ id:uid(), dt:d.toISOString(), kind:logKind, bristol:bris, memo:$("lM").value.trim() });
+    toast("記録しました");
+  }
+  save(); resetLogForm(); renderSummary();
+});
+
+// 就寝→起床 をペアにして睡眠時間を出す
+function sleepSessions(){
+  var evs = db.logs.filter(function(l){ return l.kind==="sleep" || l.kind==="wake"; })
+                   .sort(function(a,b){ return a.dt<b.dt?-1:a.dt>b.dt?1:0; });
+  var out = [], pending = null;
+  evs.forEach(function(e){
+    if(e.kind === "sleep"){ pending = e; return; }
+    if(pending){
+      var h = (new Date(e.dt) - new Date(pending.dt)) / 3600000;
+      if(h > 0 && h <= 24) out.push({ wakeId:e.id, sleepDt:pending.dt, wakeDt:e.dt, hours:h, day:dayKey(e.dt) });
+      pending = null;
+    }
+  });
+  return out;
+}
+
 /* ---------- サマリー ---------- */
 function bodySorted(){ // 昇順（古い→新しい）
   return db.body.slice().sort(function(a,b){ return a.dt<b.dt?-1:a.dt>b.dt?1:0; });
@@ -718,6 +869,24 @@ function renderSummary(){
     html += statBox("今日のお酒", alc===0 ? 0 : f1(alc), "g", asub, acls);
   }
 
+  // 睡眠：直近の 就寝→起床 のペア
+  var ss = sleepSessions();
+  if(ss.length){
+    var lastS = ss[ss.length-1];
+    html += statBox("直近の睡眠", f1(lastS.hours), "時間",
+      fmtTime(lastS.sleepDt)+" → "+fmtTime(lastS.wakeDt));
+  }else if(db.logs.some(function(l){ return l.kind==="sleep"||l.kind==="wake"; })){
+    html += statBox("直近の睡眠", "—", "", "就寝と起床が揃うと出ます");
+  }
+
+  // 排便：記録があるときだけ
+  if(db.logs.some(function(l){ return l.kind==="stool"; })){
+    var tk = dayKey(new Date().toISOString());
+    var stools = db.logs.filter(function(l){ return l.kind==="stool" && dayKey(l.dt)===tk; });
+    html += statBox("今日の排便", stools.length, "回",
+      stools.length ? stools.map(function(l){ return fmtTime(l.dt); }).join(" / ") : "まだありません");
+  }
+
   $("summary").innerHTML = html;
 
   // 今日のたんぱく質を目標があるときだけヒント表示
@@ -730,7 +899,7 @@ function renderSummary(){
 /* ---------- 履歴 ---------- */
 var histFilter = "all";
 function renderHistChips(){
-  var opts = [["all","すべて"],["body","体組成"],["meal","食事"]];
+  var opts = [["all","すべて"],["body","体組成"],["meal","食事"],["log","生活"]];
   $("histChips").innerHTML = opts.map(function(o){
     return '<button type="button" class="chip'+(o[0]===histFilter?" on":"")+'" data-f="'+o[0]+'">'+o[1]+"</button>";
   }).join("");
@@ -740,8 +909,9 @@ function renderHistChips(){
 }
 function renderHistory(){
   var items = [];
-  if(histFilter!=="meal") db.body.forEach(function(r){ items.push({k:"body", r:r, dt:r.dt}); });
-  if(histFilter!=="body") db.meals.forEach(function(r){ items.push({k:"meal", r:r, dt:r.dt}); });
+  if(histFilter==="all" || histFilter==="body") db.body.forEach(function(r){ items.push({k:"body", r:r, dt:r.dt}); });
+  if(histFilter==="all" || histFilter==="meal") db.meals.forEach(function(r){ items.push({k:"meal", r:r, dt:r.dt}); });
+  if(histFilter==="all" || histFilter==="log")  db.logs.forEach(function(r){ items.push({k:"log",  r:r, dt:r.dt}); });
   items.sort(sortDesc);
 
   if(!items.length){
@@ -764,23 +934,27 @@ function renderHistory(){
     if(ws.length) head.push(f1(ws[ws.length-1].r.weight)+" kg");
     if(kcal) head.push(kcal+" kcal");
     if(alc) head.push("酒 "+f1(alc)+"g");
+    var slp = sleepByDay()[g.key];
+    if(slp) head.push("睡眠 "+f1(slp)+"h");
     return '<div class="daygroup"><div class="dayhead"><span>'+esc(fmtDay(g.key))+"</span><span>"+esc(head.join(" ・ "))+'</span></div><ul class="list">'
-      + g.items.map(function(it){ return it.k==="body" ? bodyLi(it.r) : mealLi(it.r); }).join("")
+      + g.items.map(function(it){ return it.k==="body" ? bodyLi(it.r) : it.k==="meal" ? mealLi(it.r) : logLi(it.r); }).join("")
       + "</ul></div>";
   }).join("");
 
   Array.prototype.forEach.call($("histWrap").querySelectorAll("[data-open]"), function(el){
     el.onclick = function(){
-      el.dataset.open==="body" ? editBody(el.dataset.id) : editMeal(el.dataset.id);
+      var k = el.dataset.open;
+      k==="body" ? editBody(el.dataset.id) : k==="meal" ? editMeal(el.dataset.id) : editLog(el.dataset.id);
     };
   });
   Array.prototype.forEach.call($("histWrap").querySelectorAll("[data-act]"), function(b){
     b.onclick = function(){
       var id = b.dataset.id, kind = b.dataset.kind, act = b.dataset.act;
-      if(act==="edit"){ kind==="body" ? editBody(id) : editMeal(id); return; }
+      if(act==="edit"){ kind==="body" ? editBody(id) : kind==="meal" ? editMeal(id) : editLog(id); return; }
       if(!confirm("この記録を削除します。よろしいですか？")) return;
       if(kind==="body") db.body = db.body.filter(function(x){ return x.id!==id; });
-      else db.meals = db.meals.filter(function(x){ return x.id!==id; });
+      else if(kind==="meal") db.meals = db.meals.filter(function(x){ return x.id!==id; });
+      else db.logs = db.logs.filter(function(x){ return x.id!==id; });
       save(); renderHistory(); renderSummary(); toast("削除しました");
     };
   });
@@ -808,6 +982,26 @@ function mealLi(r){
     "<div class='li-b'><span class='tag'>"+esc(r.type||"食事")+"</span>"+esc(r.name)+"</div>"+
     (r.memo ? "<div class='li-n'>"+esc(r.memo)+"</div>" : "")+
     "</div><div class='li-v'>"+v.join("<br>")+"</div>"+acts("meal", r.id)+"</li>";
+}
+
+function sleepByDay(){
+  var m = {};
+  sleepSessions().forEach(function(s){ m[s.day] = (m[s.day]||0) + s.hours; });
+  return m;
+}
+function logLi(r){
+  var kind = LOG_KINDS.filter(function(x){ return x[0]===r.kind; })[0];
+  var icon = kind ? kind[2] : "・";
+  var v = [];
+  if(r.kind === "wake"){
+    var ss = sleepSessions().filter(function(x){ return x.wakeId === r.id; })[0];
+    if(ss) v.push("睡眠 <b>"+f1(ss.hours)+"</b>h");
+  }
+  if(r.bristol) v.push(r.bristol+" "+BRISTOL[r.bristol]);
+  return "<li><div class='li-main' data-open='log' data-id='"+r.id+"'><div class='li-t'>"+fmtTime(r.dt)+"</div>"+
+    "<div class='li-b'><span class='tag'>"+esc(logLabel(r.kind))+"</span>"+icon+"</div>"+
+    (r.memo ? "<div class='li-n'>"+esc(r.memo)+"</div>" : "")+
+    "</div><div class='li-v'>"+v.join("<br>")+"</div>"+acts("log", r.id)+"</li>";
 }
 
 /* ---------- グラフ ---------- */
@@ -1006,8 +1200,10 @@ function renderBarChart(cv, hintEl, opt){
     buckets.push({ key: dayKey(d.toISOString()), d:d, v:0, has:false });
   }
   var map = {}; buckets.forEach(function(b){ map[b.key]=b; });
-  db.meals.forEach(function(m){
-    var b = map[dayKey(m.dt)];
+  var records = opt.records || db.meals;
+  var dayOf = opt.dayOf || function(r){ return dayKey(r.dt); };
+  records.forEach(function(m){
+    var b = map[dayOf(m)];
     if(b){ b.has = true; b.v += (opt.valueOf(m) || 0); }
   });
 
@@ -1033,7 +1229,7 @@ function renderBarChart(cv, hintEl, opt){
     var y = PT + (1 - v/maxV)*innerH;
     ctx.strokeStyle=line; ctx.beginPath(); ctx.moveTo(PL,y); ctx.lineTo(W-PR,y); ctx.stroke();
     ctx.fillStyle=sub; ctx.textAlign="right"; ctx.textBaseline="middle";
-    ctx.fillText(String(Math.round(v)), PL-5, y);
+    ctx.fillText(opt.decimals ? v.toFixed(1) : String(Math.round(v)), PL-5, y);
   });
 
   buckets.forEach(function(b, i){
@@ -1082,7 +1278,22 @@ function renderKcalChart(){
         + (st.goal ? "（目標 "+st.goal+" kcal）" : "");
     }
   });
+  renderSleepChart();
   renderAlcChart();
+}
+
+function renderSleepChart(){
+  renderBarChart($("sleepChart"), $("sleepHint"), {
+    records: sleepSessions(),
+    dayOf: function(s){ return s.day; },
+    valueOf: function(s){ return s.hours; },
+    goal: null,
+    emptyMsg: "睡眠の記録がありません",
+    emptyHint: "「就寝」と「起床」を両方記録すると、その日の睡眠時間が出ます。",
+    hint: function(st){
+      return "直近"+st.days+"日のうち"+st.hitDays+"日を記録・平均 "+f1(st.avg)+" 時間/日";
+    }
+  });
 }
 
 function renderAlcChart(){
@@ -1115,7 +1326,7 @@ function renderSettings(){
   $("sK").value = s.kcal==null ? "" : s.kcal;
   $("sP").value = s.protein==null ? "" : s.protein;
   $("sA").value = s.alcLimit==null ? "" : s.alcLimit;
-  $("countInfo").textContent = "体組成 "+db.body.length+"件 / 食事 "+db.meals.length+"件を保存中";
+  $("countInfo").textContent = "体組成 "+db.body.length+"件 / 食事 "+db.meals.length+"件 / 生活 "+db.logs.length+"件を保存中";
   renderVersion();
 }
 function renderVersion(){
@@ -1203,13 +1414,22 @@ function buildJson(){
            mime:"application/json" };
 }
 function buildCsv(){
-  var rows = [["種別","日時","体重kg","体脂肪率%","区分","内容","kcal","たんぱく質g","酒量ml","度数%","純アルコールg","メモ"]];
+  var rows = [["種別","日時","体重kg","体脂肪率%","区分","内容","kcal","たんぱく質g",
+               "酒量ml","度数%","純アルコールg","便の状態","睡眠時間h","メモ"]];
   db.body.slice().sort(sortDesc).forEach(function(r){
-    rows.push(["体組成", new Date(r.dt).toLocaleString("ja-JP"), r.weight, r.fat, "", "", "", "", "", "", "", r.memo]);
+    rows.push(["体組成", new Date(r.dt).toLocaleString("ja-JP"), r.weight, r.fat, "", "", "", "",
+               "", "", "", "", "", r.memo]);
   });
   db.meals.slice().sort(sortDesc).forEach(function(r){
     rows.push(["食事", new Date(r.dt).toLocaleString("ja-JP"), "", "", r.type, r.name, r.kcal, r.protein,
-               r.ml, r.abv, r.alc, r.memo]);
+               r.ml, r.abv, r.alc, "", "", r.memo]);
+  });
+  var hoursByWake = {};
+  sleepSessions().forEach(function(x){ hoursByWake[x.wakeId] = Math.round(x.hours*100)/100; });
+  db.logs.slice().sort(sortDesc).forEach(function(r){
+    rows.push(["生活", new Date(r.dt).toLocaleString("ja-JP"), "", "", logLabel(r.kind), "", "", "",
+               "", "", "", (r.bristol ? r.bristol+" "+BRISTOL[r.bristol] : ""),
+               hoursByWake[r.id]==null ? "" : hoursByWake[r.id], r.memo]);
   });
   // 先頭のBOMはExcelでの文字化け防止
   return { name:"diet-"+stamp()+".csv",
@@ -1279,15 +1499,17 @@ $("impMerge").addEventListener("click", function(){
     db.body.forEach(function(r){ ids["b"+r.id]=1; });
     db.meals.forEach(function(r){ ids["m"+r.id]=1; });
     var add = 0;
+    (db.logs||[]).forEach(function(r){ ids["l"+r.id]=1; });
     d.body.forEach(function(r){ if(r.id && !ids["b"+r.id]){ db.body.push(r); add++; } });
     d.meals.forEach(function(r){ if(r.id && !ids["m"+r.id]){ db.meals.push(r); add++; } });
+    (d.logs||[]).forEach(function(r){ if(r.id && !ids["l"+r.id]){ db.logs.push(r); add++; } });
     save(); renderAll(); toast(add+"件を追加しました");
   });
 });
 $("impReplace").addEventListener("click", function(){
   if(!confirm("現在のデータをすべて置き換えます。よろしいですか？")) return;
   readImport(function(d){
-    db = { body:d.body, meals:d.meals, settings:d.settings||{}, v:1 };
+    db = { body:d.body, meals:d.meals, logs:d.logs||[], settings:d.settings||{}, v:1 };
     save(); renderAll(); toast("読み込みました");
   });
 });
@@ -1299,8 +1521,8 @@ $("wipe").addEventListener("click", function(){
 
 /* ---------- 初期化 ---------- */
 function renderAll(){
-  renderAlcPresets();
-  resetBodyForm(); resetMealForm();
+  renderAlcPresets(); renderQuickLog();
+  resetBodyForm(); resetMealForm(); resetLogForm();
   renderSummary(); renderHistChips(); renderHistory();
   renderRangeChips(); renderSettings();
   if($("view-chart").classList.contains("active")) renderChart();
