@@ -396,6 +396,7 @@ nav button.on{color:var(--accent)}
   <div class="card">
     <h2>データ管理（バックアップ）</h2>
     <p class="hint" style="margin-bottom:10px">データはこの端末のブラウザ内だけに保存されます。機種変更やブラウザのデータ削除に備えて、ときどき書き出してください。</p>
+    <p class="hint" id="backupInfo" style="margin-bottom:12px"></p>
     <div class="field">
       <label>JSON（バックアップ・アプリに読み戻せます）</label>
       <div class="row">
@@ -419,6 +420,7 @@ nav button.on{color:var(--accent)}
       <button class="chip" id="impMerge">追加読み込み（マージ）</button>
       <button class="chip" id="impReplace">置き換え読み込み</button>
     </div>
+    <p class="hint" id="importInfo" style="display:none;margin:10px 0 0"></p>
   </div>
 
   <div class="card">
@@ -455,7 +457,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.5.3";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.5.4";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -553,6 +555,18 @@ function toast(msg){
   t.textContent = msg; t.classList.add("show");
   clearTimeout(toast._t);
   toast._t = setTimeout(function(){ t.classList.remove("show"); }, 1800);
+}
+function fmtDateTime(iso){
+  var d = new Date(iso);
+  if(isNaN(d)) return "不明";
+  return d.getFullYear()+"/"+(d.getMonth()+1)+"/"+d.getDate()+" "+pad(d.getHours())+":"+pad(d.getMinutes());
+}
+function relDays(iso){
+  var d0 = new Date(iso); if(isNaN(d0)) return "";
+  d0.setHours(0,0,0,0);
+  var t0 = new Date(); t0.setHours(0,0,0,0);
+  var n = Math.round((t0 - d0) / 86400000);
+  return n <= 0 ? "今日" : n === 1 ? "昨日" : n + "日前";
 }
 function sortDesc(a,b){ return a.dt < b.dt ? 1 : a.dt > b.dt ? -1 : 0; }
 function $(id){ return document.getElementById(id); }
@@ -1560,6 +1574,7 @@ function renderSettings(){
   $("sA").value = s.alcLimit==null ? "" : s.alcLimit;
   $("countInfo").textContent = "体組成 "+db.body.length+"件 / 食事 "+db.meals.length+"件 / 生活 "+db.logs.length+"件を保存中";
   renderVersion();
+  renderBackupInfo();
 }
 function renderVersion(){
   var el = $("verInfo");
@@ -1700,8 +1715,14 @@ function csvCell(v){
 
 // 書き出す中身を作る（保存・共有で共通）
 function buildJson(){
+  // 書き出した日時とバージョンをファイル自身に持たせる
+  var payload = {
+    exportedAt: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    body: db.body, meals: db.meals, logs: db.logs, settings: db.settings, v: 1
+  };
   return { name:"diet-backup-"+stamp()+".json",
-           text:JSON.stringify(db, null, 2),
+           text:JSON.stringify(payload, null, 2),
            mime:"application/json" };
 }
 function buildCsv(){
@@ -1731,40 +1752,59 @@ function buildCsv(){
 }
 
 // iOS/Androidの共有シートにファイルを渡せるか
+// 最後にJSONを書き出した日時（端末ごとの情報なのでバックアップ本体には含めない）
+function markBackup(){
+  try{ localStorage.setItem(KEY+":backup", new Date().toISOString()); }catch(e){}
+  renderBackupInfo();
+}
+function renderBackupInfo(){
+  var el = $("backupInfo"), iso = null;
+  try{ iso = localStorage.getItem(KEY+":backup"); }catch(e){}
+  if(!iso){
+    el.innerHTML = "最後のバックアップ：<b>まだ書き出していません</b> — JSONを保存しておくと、機種変更やデータ消去から復元できます。";
+    return;
+  }
+  var days = Math.round((Date.now() - new Date(iso)) / 86400000);
+  el.innerHTML = "最後のバックアップ：<b>"+esc(fmtDateTime(iso))+"</b>（"+esc(relDays(iso))+"）"
+    + (days >= 14 ? " — そろそろ書き出しておくと安心です。" : "");
+}
+
 function canShareFiles(){
   try{
     if(!navigator.share || !navigator.canShare || typeof File !== "function") return false;
     return navigator.canShare({ files:[ new File(["a"], "a.txt", {type:"text/plain"}) ] });
   }catch(e){ return false; }
 }
-function shareFile(build){
+function shareFile(build, isBackup){
   var d = build(), file;
+  function fallback(){
+    download(d.name, d.text, d.mime+";charset=utf-8");
+    if(isBackup) markBackup();
+  }
   try{
     file = new File([d.text], d.name, {type:d.mime});
-  }catch(e){ download(d.name, d.text, d.mime+";charset=utf-8"); return; }
+  }catch(e){ fallback(); return; }
   if(!navigator.canShare || !navigator.canShare({files:[file]})){
-    download(d.name, d.text, d.mime+";charset=utf-8");
-    toast("共有できないため保存しました");
-    return;
+    fallback(); toast("共有できないため保存しました"); return;
   }
   navigator.share({ files:[file], title:d.name })
-    .then(function(){ toast("共有しました"); })
+    .then(function(){ if(isBackup) markBackup(); toast("共有しました"); })
     .catch(function(err){
       if(err && (err.name==="AbortError" || err.name==="NotAllowedError")) return; // ユーザーが閉じた
-      download(d.name, d.text, d.mime+";charset=utf-8");
-      toast("共有できないため保存しました");
+      fallback(); toast("共有できないため保存しました");
     });
 }
-function saveFile(build){
+function saveFile(build, isBackup){
   var d = build();
   download(d.name, d.text, d.mime+";charset=utf-8");
+  if(isBackup) markBackup();
   toast("書き出しました");
 }
 
-$("expJson").addEventListener("click", function(){ saveFile(buildJson); });
-$("expCsv").addEventListener("click", function(){ saveFile(buildCsv); });
-$("shareJson").addEventListener("click", function(){ shareFile(buildJson); });
-$("shareCsv").addEventListener("click", function(){ shareFile(buildCsv); });
+$("expJson").addEventListener("click", function(){ saveFile(buildJson, true); });
+$("expCsv").addEventListener("click", function(){ saveFile(buildCsv, false); });
+$("shareJson").addEventListener("click", function(){ shareFile(buildJson, true); });
+$("shareCsv").addEventListener("click", function(){ shareFile(buildCsv, false); });
 
 if(canShareFiles()){
   $("shareJson").style.display = "";
@@ -1786,6 +1826,19 @@ function readImport(cb){
   fr.onerror = function(){ alert("ファイルを読めませんでした。"); };
   fr.readAsText(f);
 }
+// 読み込もうとしているファイルの中身を要約する
+function backupSummary(d){
+  var when = d.exportedAt ? fmtDateTime(d.exportedAt)+"（"+relDays(d.exportedAt)+"）" : "不明（書き出し日時を持たない古い形式）";
+  return "書き出し日時：" + when
+    + (d.appVersion ? "\nアプリのバージョン：" + d.appVersion : "")
+    + "\n体組成 " + d.body.length + "件 / 食事 " + d.meals.length + "件 / 生活 " + ((d.logs||[]).length) + "件";
+}
+function showImportInfo(d, done){
+  var el = $("importInfo");
+  el.style.display = "";
+  el.textContent = done + "｜" + backupSummary(d).replace(/\n/g, " ・ ");
+}
+
 $("impMerge").addEventListener("click", function(){
   readImport(function(d){
     var ids = {};
@@ -1796,14 +1849,16 @@ $("impMerge").addEventListener("click", function(){
     d.body.forEach(function(r){ if(r.id && !ids["b"+r.id]){ db.body.push(r); add++; } });
     d.meals.forEach(function(r){ if(r.id && !ids["m"+r.id]){ db.meals.push(r); add++; } });
     (d.logs||[]).forEach(function(r){ if(r.id && !ids["l"+r.id]){ db.logs.push(r); add++; } });
-    save(); renderAll(); toast(add+"件を追加しました");
+    save(); renderAll(); showImportInfo(d, add+"件を追加"); toast(add+"件を追加しました");
   });
 });
 $("impReplace").addEventListener("click", function(){
-  if(!confirm("現在のデータをすべて置き換えます。よろしいですか？")) return;
   readImport(function(d){
+    if(!confirm("読み込むバックアップ\n\n" + backupSummary(d)
+      + "\n\n現在のデータ（体組成 " + db.body.length + "件 / 食事 " + db.meals.length
+      + "件 / 生活 " + db.logs.length + "件）をすべて置き換えます。よろしいですか？")) return;
     db = { body:d.body, meals:d.meals, logs:d.logs||[], settings:d.settings||{}, v:1 };
-    save(); renderAll(); toast("読み込みました");
+    save(); renderAll(); showImportInfo(d, "置き換え完了"); toast("読み込みました");
   });
 });
 $("wipe").addEventListener("click", function(){
