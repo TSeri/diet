@@ -58,7 +58,7 @@ input,select,textarea{
   width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:10px;
   background:var(--bg);appearance:none;
 }
-input:focus,select,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
 select{background-image:none}
 textarea{min-height:56px;resize:vertical}
 .field{margin-bottom:10px}
@@ -175,7 +175,7 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
-    <h2>体組成・バイタル</h2>
+    <h2>体組成・バイタル・環境</h2>
     <div id="bodyEditBar"></div>
     <div class="field">
       <label for="bDt">測定日時</label>
@@ -203,6 +203,20 @@ nav button.on{color:var(--accent)}
       <div class="field">
         <label for="bP">脈拍 (bpm)</label>
         <input type="number" id="bP" inputmode="numeric" step="1" min="20" max="250" placeholder="62">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="bWx">天気</label>
+        <select id="bWx"></select>
+      </div>
+      <div class="field">
+        <label for="bR">室温 (℃)</label>
+        <input type="number" id="bR" inputmode="decimal" step="0.1" min="-20" max="60" placeholder="24.0">
+      </div>
+      <div class="field">
+        <label for="bH">湿度 (%)</label>
+        <input type="number" id="bH" inputmode="numeric" step="1" min="0" max="100" placeholder="55">
       </div>
     </div>
     <div class="field">
@@ -416,7 +430,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.4.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.5.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -427,6 +441,18 @@ var ALC_PRESETS = [
   ["ワイン120ml", 120, 12],  ["日本酒1合", 180, 15],
   ["焼酎100ml", 100, 25],    ["ウイスキー30ml", 30, 43]
 ];
+// 天気 [保存する値, アイコン]
+var WEATHERS = [["快晴","☀️"],["晴れ","🌤"],["くもり","☁️"],["雨","🌧"],["雪","❄️"],["雷雨","⛈"]];
+function weatherIcon(w){
+  var e = WEATHERS.filter(function(x){ return x[0]===w; })[0];
+  return e ? e[1] : "";
+}
+function renderWeatherSelect(){
+  $("bWx").innerHTML = '<option value="">—</option>' + WEATHERS.map(function(x){
+    return '<option value="'+esc(x[0])+'">'+x[1]+" "+esc(x[0])+"</option>";
+  }).join("");
+}
+
 // 生活記録の種類 [キー, 表示名, アイコン]
 var LOG_KINDS = [["wake","起床","🌅"],["sleep","就寝","🌙"],["stool","排便","💩"],["urine","排尿","💧"]];
 function logLabel(k){
@@ -532,6 +558,7 @@ function resetBodyForm(){
   $("bDt").value = toLocalInput(new Date());
   $("bW").value = ""; $("bF").value = "";
   $("bT").value = ""; $("bS").value = ""; $("bP").value = "";
+  $("bWx").value = ""; $("bR").value = ""; $("bH").value = "";
   $("bM").value = "";
   $("bSave").textContent = "記録する";
   $("bodyEditBar").innerHTML = "";
@@ -546,6 +573,9 @@ function editBody(id){
   $("bT").value = r.temp==null ? "" : r.temp;
   $("bS").value = r.spo2==null ? "" : r.spo2;
   $("bP").value = r.pulse==null ? "" : r.pulse;
+  $("bWx").value = r.weather || "";
+  $("bR").value = r.room==null ? "" : r.room;
+  $("bH").value = r.humid==null ? "" : r.humid;
   $("bM").value = r.memo || "";
   $("bSave").textContent = "この記録を更新";
   $("bodyEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelBody">やめる</button></div>';
@@ -558,23 +588,31 @@ $("bSave").addEventListener("click", function(){
   if(!d){ alert("測定日時を入力してください。"); return; }
   var w = num($("bW").value), f = num($("bF").value);
   var tmp = num($("bT").value), spo = num($("bS").value), pul = num($("bP").value);
-  if(w===null && f===null && tmp===null && spo===null && pul===null){
-    alert("体重・体脂肪率・体温・SpO₂・脈拍のうち、どれか1つは入力してください。"); return;
+  var wx = $("bWx").value, room = num($("bR").value), hum = num($("bH").value);
+  if(w===null && f===null && tmp===null && spo===null && pul===null
+     && !wx && room===null && hum===null){
+    alert("体重・体脂肪率・体温・SpO₂・脈拍・天気・室温・湿度のうち、どれか1つは入力してください。"); return;
   }
   if(w!==null && (w<=0 || w>500)){ alert("体重の値を確認してください。"); return; }
   if(f!==null && (f<0 || f>100)){ alert("体脂肪率は 0〜100 の範囲で入力してください。"); return; }
   if(tmp!==null && (tmp<30 || tmp>45)){ alert("体温は 30〜45 ℃ の範囲で入力してください。"); return; }
   if(spo!==null && (spo<50 || spo>100)){ alert("SpO₂ は 50〜100 % の範囲で入力してください。"); return; }
   if(pul!==null && (pul<20 || pul>250)){ alert("脈拍は 20〜250 bpm の範囲で入力してください。"); return; }
+  if(room!==null && (room<-20 || room>60)){ alert("室温は -20〜60 ℃ の範囲で入力してください。"); return; }
+  if(hum!==null && (hum<0 || hum>100)){ alert("湿度は 0〜100 % の範囲で入力してください。"); return; }
 
   if(editBodyId){
     var r = db.body.find(function(x){ return x.id===editBodyId; });
     r.dt = d.toISOString(); r.weight = w; r.fat = f;
-    r.temp = tmp; r.spo2 = spo; r.pulse = pul; r.memo = $("bM").value.trim();
+    r.temp = tmp; r.spo2 = spo; r.pulse = pul;
+    r.weather = wx || null; r.room = room; r.humid = hum;
+    r.memo = $("bM").value.trim();
     toast("更新しました");
   }else{
     db.body.push({ id:uid(), dt:d.toISOString(), weight:w, fat:f,
-                   temp:tmp, spo2:spo, pulse:pul, memo:$("bM").value.trim() });
+                   temp:tmp, spo2:spo, pulse:pul,
+                   weather:wx || null, room:room, humid:hum,
+                   memo:$("bM").value.trim() });
     toast("記録しました");
   }
   save(); resetBodyForm(); renderSummary();
@@ -909,6 +947,16 @@ function renderSummary(){
       (lastS.spo2!=null && lastS.spo2 < 96) ? "up" : "");
   }
 
+  // 室内環境：記録があるときだけ
+  var lastE = bodySorted().filter(function(r){ return r.room!=null || r.humid!=null || r.weather; }).pop();
+  if(lastE){
+    var esub = [];
+    if(lastE.humid!=null) esub.push("湿度 "+lastE.humid+"%");
+    if(lastE.weather) esub.push(weatherIcon(lastE.weather)+" "+lastE.weather);
+    html += statBox("室温", lastE.room==null ? "—" : f1(lastE.room), lastE.room==null ? "" : "℃",
+      esub.join(" ・ ") || "室温 未記録");
+  }
+
   // 睡眠：直近の 就寝→起床 のペア
   var ss = sleepSessions();
   if(ss.length){
@@ -1011,6 +1059,9 @@ function bodyLi(r){
   if(r.temp!=null) v.push("<b>"+f1(r.temp)+"</b> ℃");
   if(r.spo2!=null) v.push("SpO₂ <b>"+r.spo2+"</b>%");
   if(r.pulse!=null) v.push("脈 <b>"+r.pulse+"</b>");
+  if(r.room!=null) v.push("室温 <b>"+f1(r.room)+"</b>℃");
+  if(r.humid!=null) v.push("湿度 <b>"+r.humid+"</b>%");
+  if(r.weather) v.push(weatherIcon(r.weather)+esc(r.weather));
   return "<li><div class='li-main' data-open='body' data-id='"+r.id+"'><div class='li-t'>"+fmtTime(r.dt)+"</div>"+
     "<div class='li-b'><span class='tag'>体組成</span>"+v.join(" / ")+"</div>"+
     (r.memo ? "<div class='li-n'>"+esc(r.memo)+"</div>" : "")+
@@ -1101,6 +1152,10 @@ var CHART_MODES = {
   vital: { title:"体温・SpO₂の推移", label:"体温・SpO₂",
            left: {key:"temp", name:"体温",  unit:"℃", cvar:"--f"},
            right:{key:"spo2", name:"SpO₂", unit:"%",  cvar:"--w"},
+           ma:false, goal:function(){ return null; }, goalLabel:function(){ return ""; } },
+  env:   { title:"室温・湿度の推移", label:"室温・湿度",
+           left: {key:"room",  name:"室温", unit:"℃", cvar:"--f"},
+           right:{key:"humid", name:"湿度", unit:"%",  cvar:"--w"},
            ma:false, goal:function(){ return null; }, goalLabel:function(){ return ""; } }
 };
 var chartMode = "body";
@@ -1252,6 +1307,31 @@ function renderChart(){
     if(fp.length){
       var fd = r1(fp[fp.length-1].v - fp[0].v);
       st += statBox("体脂肪率の増減", (fd>0?"+":"")+f1(fd), "%", fp.length+"件", fd>0?"up":fd<0?"down":"flat");
+    }
+  }else if(chartMode === "env"){
+    if(wp.length){
+      var ravg = wp.reduce(function(a,p){return a+p.v;},0)/wp.length;
+      var rmin = Math.min.apply(null, wp.map(function(p){return p.v;}));
+      var rmax = Math.max.apply(null, wp.map(function(p){return p.v;}));
+      st += statBox("室温 平均", f1(ravg), "℃", wp.length+"件");
+      st += statBox("室温 最低", f1(rmin), "℃", "");
+      st += statBox("室温 最高", f1(rmax), "℃", "");
+    }
+    if(fp.length){
+      var havg = fp.reduce(function(a,p){return a+p.v;},0)/fp.length;
+      var hmin = Math.min.apply(null, fp.map(function(p){return p.v;}));
+      var hmax = Math.max.apply(null, fp.map(function(p){return p.v;}));
+      st += statBox("湿度 平均", f1(havg), "%", fp.length+"件");
+      st += statBox("湿度 最低", hmin, "%", "");
+      st += statBox("湿度 最高", hmax, "%", "");
+    }
+    // 天気は数値でないので内訳を出す
+    var wc = {}, wn = 0;
+    rows.forEach(function(r){ if(r.weather){ wc[r.weather]=(wc[r.weather]||0)+1; wn++; } });
+    if(wn){
+      var top = Object.keys(wc).sort(function(a,b){ return wc[b]-wc[a]; });
+      st += statBox("最多の天気", weatherIcon(top[0])+" "+top[0], "",
+        top.map(function(k){ return weatherIcon(k)+wc[k]; }).join(" "));
     }
   }else{
     if(wp.length){
@@ -1505,21 +1585,23 @@ function buildJson(){
            mime:"application/json" };
 }
 function buildCsv(){
-  var rows = [["種別","日時","体重kg","体脂肪率%","体温℃","SpO2%","脈拍bpm","区分","内容","kcal","たんぱく質g",
-               "酒量ml","度数%","純アルコールg","便の状態","睡眠時間h","メモ"]];
+  var rows = [["種別","日時","体重kg","体脂肪率%","体温℃","SpO2%","脈拍bpm","天気","室温℃","湿度%",
+               "区分","内容","kcal","たんぱく質g","酒量ml","度数%","純アルコールg","便の状態","睡眠時間h","メモ"]];
   db.body.slice().sort(sortDesc).forEach(function(r){
     rows.push(["体組成", new Date(r.dt).toLocaleString("ja-JP"), r.weight, r.fat, r.temp, r.spo2, r.pulse,
+               r.weather, r.room, r.humid,
                "", "", "", "", "", "", "", "", "", r.memo]);
   });
   db.meals.slice().sort(sortDesc).forEach(function(r){
-    rows.push(["食事", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", r.type, r.name, r.kcal, r.protein,
-               r.ml, r.abv, r.alc, "", "", r.memo]);
+    rows.push(["食事", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", "", "", "",
+               r.type, r.name, r.kcal, r.protein, r.ml, r.abv, r.alc, "", "", r.memo]);
   });
   var hoursByWake = {};
   sleepSessions().forEach(function(x){ hoursByWake[x.wakeId] = Math.round(x.hours*100)/100; });
   db.logs.slice().sort(sortDesc).forEach(function(r){
-    rows.push(["生活", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", logLabel(r.kind), "", "", "",
-               "", "", "", (r.bristol ? r.bristol+" "+BRISTOL[r.bristol] : ""),
+    rows.push(["生活", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", "", "", "",
+               logLabel(r.kind), "", "", "", "", "", "",
+               (r.bristol ? r.bristol+" "+BRISTOL[r.bristol] : ""),
                hoursByWake[r.id]==null ? "" : hoursByWake[r.id], r.memo]);
   });
   // 先頭のBOMはExcelでの文字化け防止
@@ -1612,7 +1694,7 @@ $("wipe").addEventListener("click", function(){
 
 /* ---------- 初期化 ---------- */
 function renderAll(){
-  renderAlcPresets(); renderQuickLog();
+  renderWeatherSelect(); renderAlcPresets(); renderQuickLog();
   resetBodyForm(); resetMealForm(); resetLogForm();
   renderSummary(); renderHistChips(); renderHistory();
   renderModeChips(); renderRangeChips(); renderSettings();
