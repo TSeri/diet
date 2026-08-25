@@ -62,6 +62,9 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-
 select{background-image:none}
 textarea{min-height:56px;resize:vertical}
 .field{margin-bottom:10px}
+.dtrow{display:flex;gap:8px;align-items:stretch}
+.dtrow input{flex:1;min-width:0}
+.dtrow .btn{width:auto;flex:0 0 auto;padding:10px 16px;font-size:14px}
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;
   padding:11px 16px;border-radius:10px;border:1px solid transparent;
@@ -179,7 +182,10 @@ nav button.on{color:var(--accent)}
     <div id="bodyEditBar"></div>
     <div class="field">
       <label for="bDt">測定日時</label>
-      <input type="datetime-local" id="bDt">
+      <div class="dtrow">
+        <input type="datetime-local" id="bDt">
+        <button type="button" class="btn sec" id="bNow">更新</button>
+      </div>
     </div>
     <div class="row">
       <div class="field">
@@ -238,7 +244,10 @@ nav button.on{color:var(--accent)}
       <summary>時刻を指定する・便の状態を残す</summary>
       <div class="field">
         <label for="lDt">日時</label>
-        <input type="datetime-local" id="lDt">
+        <div class="dtrow">
+          <input type="datetime-local" id="lDt">
+          <button type="button" class="btn sec" id="lNow">更新</button>
+        </div>
       </div>
       <div class="field">
         <label>種類</label>
@@ -264,7 +273,10 @@ nav button.on{color:var(--accent)}
     <div id="mealEditBar"></div>
     <div class="field">
       <label for="mDt">日時</label>
-      <input type="datetime-local" id="mDt">
+      <div class="dtrow">
+        <input type="datetime-local" id="mDt">
+        <button type="button" class="btn sec" id="mNow">更新</button>
+      </div>
     </div>
     <div class="field">
       <label>区分</label>
@@ -443,7 +455,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.5.2";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.5.3";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -562,6 +574,17 @@ function show(v){
 Array.prototype.forEach.call(document.querySelectorAll("nav button"), function(b){
   b.addEventListener("click", function(){ show(b.dataset.v); });
 });
+
+/* ---------- 日時欄を現在時刻に合わせるボタン ---------- */
+function bindNowButton(btnId, inputId){
+  $(btnId).addEventListener("click", function(){
+    $(inputId).value = toLocalInput(new Date());
+    toast("現在の日時にしました");
+  });
+}
+bindNowButton("bNow", "bDt");
+bindNowButton("lNow", "lDt");
+bindNowButton("mNow", "mDt");
 
 /* ---------- 編集の共通処理 ---------- */
 // 編集モードに入ったカードを画面上部に出す。

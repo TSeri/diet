@@ -1,5 +1,5 @@
 /* オフライン用 Service Worker（http/https で配信したときのみ動作） */
-var CACHE = "diet-tracker-1.5.2";
+var CACHE = "diet-tracker-1.5.3";
 var ASSETS = [
   "./", "./index.html", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"
