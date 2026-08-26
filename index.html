@@ -287,6 +287,15 @@ nav button.on{color:var(--accent)}
       <button class="btn sec" id="stPaste">貼り付け</button>
     </div>
     <p class="hint" style="margin-top:8px">iPhoneの「ショートカット」でヘルスケアの歩数をコピーしてから「貼り付け」を押すと取り込めます。うまくいかないときは歩数欄を長押しして「ペースト」でも大丈夫です（カンマや「歩」が付いていても構いません）。同じ日付に保存すると上書きされ、空のまま保存するとその日の記録を消します。</p>
+    <details id="stBulkBox">
+      <summary>まとめて取り込み（何日ぶんでも）</summary>
+      <div class="field">
+        <label for="stBulk">1行につき「日付, 歩数」。長押しして貼り付けてください</label>
+        <textarea id="stBulk" rows="5" placeholder="2026-08-24, 8123&#10;2026-08-25, 9450&#10;2026/8/26 3,210歩"></textarea>
+      </div>
+      <button class="btn sec" id="stBulkSave">まとめて保存</button>
+      <p class="hint" id="stBulkInfo" style="display:none;margin-top:8px"></p>
+    </details>
   </div>
 
   <div class="card">
@@ -487,7 +496,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.6.2";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.7.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -1005,6 +1014,43 @@ $("stSave").addEventListener("click", function(){
   db.steps[k] = n;
   save(); renderSummary(); resetStepForm();
   toast(fmtSteps(n) + "歩を記録しました");
+});
+
+// 「日付, 歩数」の行をまとめて取り込む。クリップボードAPIを使わないので、
+// 長押しの手動ペーストでも、何日ぶんでも入れられる
+function parseBulk(text){
+  var ok = [], skipped = 0;
+  String(text).split(/[\r\n]+/).forEach(function(line){
+    if(!line.trim()) return;
+    var r = parsePasted(line);
+    if(r.date && isDayKey(r.date) && r.steps !== null && r.steps <= 200000){
+      ok.push({ date:r.date, steps:r.steps });
+    }else{
+      skipped++;
+    }
+  });
+  return { ok: ok, skipped: skipped };
+}
+$("stBulkSave").addEventListener("click", function(){
+  var raw = $("stBulk").value;
+  if(!raw.trim()){ alert("取り込む内容を貼り付けてください。"); return; }
+  var r = parseBulk(raw);
+  if(!r.ok.length){
+    alert("「日付, 歩数」の形の行が見つかりませんでした。\n\n例：\n2026-08-25, 9450");
+    return;
+  }
+  var added = 0, updated = 0;
+  r.ok.forEach(function(x){
+    if(db.steps[x.date] == null) added++;
+    else if(db.steps[x.date] !== x.steps) updated++;
+    db.steps[x.date] = x.steps;
+  });
+  save(); renderSummary(); resetStepForm();
+  $("stBulk").value = "";
+  var msg = r.ok.length + "日ぶんを取り込みました（新規 " + added + "日 / 更新 " + updated + "日）"
+          + (r.skipped ? " ・ 読めなかった行 " + r.skipped : "");
+  $("stBulkInfo").style.display = ""; $("stBulkInfo").textContent = msg;
+  toast(r.ok.length + "日ぶんを取り込みました");
 });
 
 // ショートカットでコピーした歩数をクリップボードから取り込む
