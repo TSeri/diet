@@ -280,13 +280,13 @@ nav button.on{color:var(--accent)}
     </div>
     <div class="field">
       <label for="stVal">歩数</label>
-      <input type="number" id="stVal" inputmode="numeric" step="1" min="0" max="200000" placeholder="8432">
+      <input type="text" id="stVal" inputmode="numeric" enterkeyhint="done" placeholder="8432（8,432歩 のような貼り付けも可）">
     </div>
     <div class="row">
       <button class="btn" id="stSave">歩数を保存</button>
       <button class="btn sec" id="stPaste">貼り付け</button>
     </div>
-    <p class="hint" style="margin-top:8px">iPhoneの「ショートカット」でヘルスケアの歩数をコピーしてから「貼り付け」を押すと取り込めます。同じ日付に保存すると上書きされ、空のまま保存するとその日の記録を消します。</p>
+    <p class="hint" style="margin-top:8px">iPhoneの「ショートカット」でヘルスケアの歩数をコピーしてから「貼り付け」を押すと取り込めます。うまくいかないときは歩数欄を長押しして「ペースト」でも大丈夫です（カンマや「歩」が付いていても構いません）。同じ日付に保存すると上書きされ、空のまま保存するとその日の記録を消します。</p>
   </div>
 
   <div class="card">
@@ -487,7 +487,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.6.1";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.6.2";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -954,6 +954,25 @@ function dayKeyOf(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.g
 function todayKey(){ return dayKeyOf(new Date()); }
 function yesterdayKey(){ var d = new Date(); d.setDate(d.getDate()-1); return dayKeyOf(d); }
 function isDayKey(s){ return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s)); }
+// 全角数字を半角に direct 変換してから数字だけを取り出す
+function normalizeDigits(t){
+  return String(t).replace(/[０-９]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); });
+}
+function parseSteps(raw){
+  var t = normalizeDigits(raw).replace(/[^0-9]/g, "");
+  return t === "" ? null : parseInt(t, 10);
+}
+// 「2026-08-25 8432」のように日付を含む文字列にも対応する
+function parsePasted(txt){
+  var t = normalizeDigits(txt), out = { date:null, steps:null };
+  var dm = t.match(/(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+  if(dm){
+    out.date = dm[1]+"-"+pad(+dm[2])+"-"+pad(+dm[3]);
+    t = t.slice(0, dm.index) + " " + t.slice(dm.index + dm[0].length);
+  }
+  out.steps = parseSteps(t);
+  return out;
+}
 function fmtSteps(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
 
 function resetStepForm(){
@@ -980,27 +999,41 @@ $("stSave").addEventListener("click", function(){
     delete db.steps[k]; save(); renderSummary(); resetStepForm();
     toast("その日の歩数を削除しました"); return;
   }
-  var n = num(raw);
-  if(n === null || n < 0 || n > 200000){ alert("歩数は 0〜200000 の範囲で入力してください。"); return; }
-  db.steps[k] = Math.round(n);
+  var n = parseSteps(raw);
+  if(n === null){ alert("歩数に数字が見つかりません。\n\n入力されている内容：" + raw.slice(0,60)); return; }
+  if(n > 200000){ alert("歩数は 0〜200000 の範囲で入力してください。（読み取った値：" + n + "）"); return; }
+  db.steps[k] = n;
   save(); renderSummary(); resetStepForm();
-  toast(fmtSteps(Math.round(n)) + "歩を記録しました");
+  toast(fmtSteps(n) + "歩を記録しました");
 });
 
 // ショートカットでコピーした歩数をクリップボードから取り込む
+function manualPasteHint(reason){
+  alert(reason + "\n\n歩数欄を長押しして「ペースト」を選んでください。カンマや「歩」が付いていてもそのままで大丈夫です。");
+  $("stVal").focus();
+}
 $("stPaste").addEventListener("click", function(){
   if(!navigator.clipboard || !navigator.clipboard.readText){
-    alert("この環境ではクリップボードを読み取れません。歩数欄に直接貼り付けてください。"); return;
+    manualPasteHint("このブラウザではクリップボードを自動で読み取れません。"); return;
   }
   navigator.clipboard.readText().then(function(txt){
-    var m = String(txt).replace(/[,\s]/g, "").match(/\d+/);
-    if(!m){ alert("クリップボードに数字が見つかりませんでした。\n\nコピーした内容：" + String(txt).slice(0,60)); return; }
-    var n = parseInt(m[0], 10);
-    if(n > 200000){ alert("読み取った値が大きすぎます（" + n + "）。歩数欄に直接入力してください。"); return; }
-    $("stVal").value = n;
-    toast(fmtSteps(n) + "歩を読み取りました");
+    if(!txt || !String(txt).trim()){
+      manualPasteHint("クリップボードが空でした。ショートカットが実行されていない可能性があります。"); return;
+    }
+    var r = parsePasted(txt);
+    if(r.steps === null){
+      manualPasteHint("クリップボードに数字が見つかりませんでした。\n\n読み取った内容：" + String(txt).slice(0,80));
+      return;
+    }
+    if(r.steps > 200000){
+      manualPasteHint("読み取った値が大きすぎます（" + r.steps + "）。");
+      return;
+    }
+    if(r.date && isDayKey(r.date)) $("stDate").value = r.date;
+    $("stVal").value = r.steps;
+    toast(fmtSteps(r.steps) + "歩を読み取りました");
   }).catch(function(){
-    alert("クリップボードを読み取れませんでした。歩数欄を長押しして貼り付けてください。");
+    manualPasteHint("クリップボードの読み取りが許可されませんでした。");
   });
 });
 
