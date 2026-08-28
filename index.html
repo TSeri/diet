@@ -270,28 +270,6 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
-    <h2>歩数</h2>
-    <div class="field">
-      <label for="stDate">日付</label>
-      <div class="dtrow">
-        <button type="button" class="btn sec" id="stPrev">前日</button>
-        <input type="date" id="stDate">
-        <button type="button" class="btn sec" id="stNext">翌日</button>
-      </div>
-    </div>
-    <div class="field">
-      <label for="stVal">歩数</label>
-      <input type="text" id="stVal" inputmode="numeric" enterkeyhint="done" placeholder="8432">
-    </div>
-    <div class="row">
-      <button class="btn" id="stSave">歩数を保存</button>
-      <button class="btn sec" id="stPaste">貼り付け</button>
-    </div>
-    <p class="hint" style="margin-top:8px">iPhoneの「ショートカット」でヘルスケアの歩数をコピーしてから「貼り付け」を押すと取り込めます。うまくいかないときは歩数欄を長押しして「ペースト」でも大丈夫です（カンマや「歩」が付いていても構いません）。同じ日付に保存すると上書きされ、空のまま保存するとその日の記録を消します。</p>
-
-  </div>
-
-  <div class="card">
     <h2>食事</h2>
     <div class="quick three" id="quickDrink"></div>
     <p class="hint" style="margin:8px 0 12px">タップするとその時刻ですぐ記録します。</p>
@@ -346,6 +324,28 @@ nav button.on{color:var(--accent)}
     </div>
     <p class="hint" id="recentHint" style="display:none">よく使う内容（タップで入力）</p>
     <div class="chips" id="recentChips"></div>
+  </div>
+
+  <div class="card">
+    <h2>歩数</h2>
+    <div class="field">
+      <label for="stDate">日付</label>
+      <div class="dtrow">
+        <button type="button" class="btn sec" id="stPrev">前日</button>
+        <input type="date" id="stDate">
+        <button type="button" class="btn sec" id="stNext">翌日</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="stVal">歩数</label>
+      <input type="text" id="stVal" inputmode="numeric" enterkeyhint="done" placeholder="8432">
+    </div>
+    <div class="row">
+      <button class="btn" id="stSave">歩数を保存</button>
+      <button class="btn sec" id="stPaste">貼り付け</button>
+    </div>
+    <p class="hint" style="margin-top:8px">iPhoneの「ショートカット」でヘルスケアの歩数をコピーしてから「貼り付け」を押すと取り込めます。うまくいかないときは歩数欄を長押しして「ペースト」でも大丈夫です（カンマや「歩」が付いていても構いません）。同じ日付に保存すると上書きされ、空のまま保存するとその日の記録を消します。</p>
+
   </div>
 </section>
 
@@ -491,7 +491,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.8.1";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.8.2";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
