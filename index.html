@@ -86,6 +86,7 @@ textarea{min-height:56px;resize:vertical}
 
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .quick{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.quick.two{grid-template-columns:repeat(2,1fr);max-width:280px}
 .quick button{
   display:flex;flex-direction:column;align-items:center;gap:5px;
   padding:13px 3px;border:1px solid var(--line);border-radius:12px;background:var(--bg);
@@ -178,6 +179,39 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
+    <h2>生活記録</h2>
+    <div id="logEditBar"></div>
+    <div class="quick" id="quickLog"></div>
+    <p class="hint" style="margin:8px 0 0">タップするとその時刻ですぐ記録します。</p>
+    <details id="logDetail">
+      <summary>時刻を指定する・便の状態を残す</summary>
+      <div class="field">
+        <label for="lDt">日時</label>
+        <div class="dtrow">
+          <input type="datetime-local" id="lDt">
+          <button type="button" class="btn sec" id="lNow">更新</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>種類</label>
+        <div class="chips" id="lKindChips"></div>
+      </div>
+      <div class="field" id="bristolField">
+        <label>便の状態（任意）</label>
+        <div class="chips" id="lBristolChips"></div>
+      </div>
+      <div class="field">
+        <label for="lM">メモ（任意）</label>
+        <input type="text" id="lM" placeholder="寝つきが悪かった / 快便 など">
+      </div>
+      <div class="row">
+        <button class="btn" id="lSave">生活記録を保存</button>
+        <button class="btn sec" id="lCancel" style="display:none">キャンセル</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
     <h2>体組成・バイタル・環境</h2>
     <div id="bodyEditBar"></div>
     <div class="field">
@@ -236,70 +270,31 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
-    <h2>生活記録</h2>
-    <div id="logEditBar"></div>
-    <div class="quick" id="quickLog"></div>
-    <p class="hint" style="margin:8px 0 0">タップするとその時刻ですぐ記録します。</p>
-    <details id="logDetail">
-      <summary>時刻を指定する・便の状態を残す</summary>
-      <div class="field">
-        <label for="lDt">日時</label>
-        <div class="dtrow">
-          <input type="datetime-local" id="lDt">
-          <button type="button" class="btn sec" id="lNow">更新</button>
-        </div>
-      </div>
-      <div class="field">
-        <label>種類</label>
-        <div class="chips" id="lKindChips"></div>
-      </div>
-      <div class="field" id="bristolField">
-        <label>便の状態（任意）</label>
-        <div class="chips" id="lBristolChips"></div>
-      </div>
-      <div class="field">
-        <label for="lM">メモ（任意）</label>
-        <input type="text" id="lM" placeholder="寝つきが悪かった / 快便 など">
-      </div>
-      <div class="row">
-        <button class="btn" id="lSave">生活記録を保存</button>
-        <button class="btn sec" id="lCancel" style="display:none">キャンセル</button>
-      </div>
-    </details>
-  </div>
-
-  <div class="card">
     <h2>歩数</h2>
     <div class="field">
       <label for="stDate">日付</label>
       <div class="dtrow">
+        <button type="button" class="btn sec" id="stPrev">前日</button>
         <input type="date" id="stDate">
-        <button type="button" class="btn sec" id="stYest">前日</button>
-        <button type="button" class="btn sec" id="stToday">今日</button>
+        <button type="button" class="btn sec" id="stNext">翌日</button>
       </div>
     </div>
     <div class="field">
       <label for="stVal">歩数</label>
-      <input type="text" id="stVal" inputmode="numeric" enterkeyhint="done" placeholder="8432（8,432歩 のような貼り付けも可）">
+      <input type="text" id="stVal" inputmode="numeric" enterkeyhint="done" placeholder="8432">
     </div>
     <div class="row">
       <button class="btn" id="stSave">歩数を保存</button>
       <button class="btn sec" id="stPaste">貼り付け</button>
     </div>
     <p class="hint" style="margin-top:8px">iPhoneの「ショートカット」でヘルスケアの歩数をコピーしてから「貼り付け」を押すと取り込めます。うまくいかないときは歩数欄を長押しして「ペースト」でも大丈夫です（カンマや「歩」が付いていても構いません）。同じ日付に保存すると上書きされ、空のまま保存するとその日の記録を消します。</p>
-    <details id="stBulkBox">
-      <summary>まとめて取り込み（何日ぶんでも）</summary>
-      <div class="field">
-        <label for="stBulk">1行につき「日付, 歩数」。長押しして貼り付けてください</label>
-        <textarea id="stBulk" rows="5" placeholder="2026-08-24, 8123&#10;2026-08-25, 9450&#10;2026/8/26 3,210歩"></textarea>
-      </div>
-      <button class="btn sec" id="stBulkSave">まとめて保存</button>
-      <p class="hint" id="stBulkInfo" style="display:none;margin-top:8px"></p>
-    </details>
+
   </div>
 
   <div class="card">
     <h2>食事</h2>
+    <div class="quick two" id="quickDrink"></div>
+    <p class="hint" style="margin:8px 0 12px">タップするとその時刻ですぐ記録します。</p>
     <div id="mealEditBar"></div>
     <div class="field">
       <label for="mDt">日時</label>
@@ -496,16 +491,15 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.7.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.8.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
+// よく飲むもの [名前, アイコン]
+var QUICK_DRINKS = [["麦茶","🍵"],["炭酸水","🥤"]];
 // お酒のプリセット [表示名, 量ml, 度数%]
 var ALC_PRESETS = [
-  ["ビール350ml", 350, 5],   ["ビール500ml", 500, 5],
-  ["ハイボール350ml", 350, 7], ["缶チューハイ350ml", 350, 7],
-  ["ワイン120ml", 120, 12],  ["日本酒1合", 180, 15],
-  ["焼酎100ml", 100, 25],    ["ウイスキー30ml", 30, 43]
+  ["ビール350ml", 350, 5], ["ビール500ml", 500, 5], ["ワイン120ml", 120, 12]
 ];
 // 天気 [保存する値, アイコン]
 var WEATHERS = [["快晴","☀️"],["晴れ","🌤"],["くもり","☁️"],["雨","🌧"],["雪","❄️"],["雷雨","⛈"]];
@@ -730,6 +724,20 @@ $("bSave").addEventListener("click", function(){
 /* ---------- 食事の入力 ---------- */
 var editMealId = null;
 var mealType = MEAL_TYPES[0];
+
+function renderQuickDrinks(){
+  $("quickDrink").innerHTML = QUICK_DRINKS.map(function(d){
+    return '<button type="button" data-n="'+esc(d[0])+'"><span class="ic">'+d[1]+"</span>"+esc(d[0])+"</button>";
+  }).join("");
+  Array.prototype.forEach.call($("quickDrink").children, function(b){
+    b.onclick = function(){
+      db.meals.push({ id:uid(), dt:new Date().toISOString(), type:"飲み物", name:b.dataset.n,
+                      kcal:0, protein:null, ml:null, abv:null, alc:null, memo:"" });
+      save(); renderSummary(); renderRecent();
+      toast(b.dataset.n+"を記録しました");
+    };
+  });
+}
 
 function renderTypeChips(){
   $("mTypeChips").innerHTML = MEAL_TYPES.map(function(t){
@@ -984,17 +992,26 @@ function parsePasted(txt){
 }
 function fmtSteps(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
 
-function resetStepForm(){
-  $("stDate").value = yesterdayKey();   // 取り込みたいのはたいてい前日ぶん
-  $("stVal").value = db.steps[yesterdayKey()] == null ? "" : db.steps[yesterdayKey()];
-}
-function setStepDate(k, label){
+function setStepDate(k){
   $("stDate").value = k;
   $("stVal").value = db.steps[k] == null ? "" : db.steps[k];
-  toast(label + "の日付にしました");
 }
-$("stYest").addEventListener("click", function(){ setStepDate(yesterdayKey(), "前日"); });
-$("stToday").addEventListener("click", function(){ setStepDate(todayKey(), "今日"); });
+function resetStepForm(){ setStepDate(todayKey()); }
+
+// 前日・翌日へ1日ずつ動かす（未来には進めない）
+function shiftStepDate(delta){
+  var k = $("stDate").value;
+  if(!isDayKey(k)) k = todayKey();
+  var p = k.split("-");
+  var d = new Date(+p[0], +p[1]-1, +p[2]);   // ローカル時刻で組み立てる
+  d.setDate(d.getDate() + delta);
+  var nk = dayKeyOf(d);
+  if(nk > todayKey()){ toast("今日より先の歩数は記録できません"); return; }
+  setStepDate(nk);
+  toast(fmtDay(nk));
+}
+$("stPrev").addEventListener("click", function(){ shiftStepDate(-1); });
+$("stNext").addEventListener("click", function(){ shiftStepDate(1); });
 $("stDate").addEventListener("change", function(){
   var k = $("stDate").value;
   $("stVal").value = (isDayKey(k) && db.steps[k] != null) ? db.steps[k] : "";
@@ -1014,43 +1031,6 @@ $("stSave").addEventListener("click", function(){
   db.steps[k] = n;
   save(); renderSummary(); resetStepForm();
   toast(fmtSteps(n) + "歩を記録しました");
-});
-
-// 「日付, 歩数」の行をまとめて取り込む。クリップボードAPIを使わないので、
-// 長押しの手動ペーストでも、何日ぶんでも入れられる
-function parseBulk(text){
-  var ok = [], skipped = 0;
-  String(text).split(/[\r\n]+/).forEach(function(line){
-    if(!line.trim()) return;
-    var r = parsePasted(line);
-    if(r.date && isDayKey(r.date) && r.steps !== null && r.steps <= 200000){
-      ok.push({ date:r.date, steps:r.steps });
-    }else{
-      skipped++;
-    }
-  });
-  return { ok: ok, skipped: skipped };
-}
-$("stBulkSave").addEventListener("click", function(){
-  var raw = $("stBulk").value;
-  if(!raw.trim()){ alert("取り込む内容を貼り付けてください。"); return; }
-  var r = parseBulk(raw);
-  if(!r.ok.length){
-    alert("「日付, 歩数」の形の行が見つかりませんでした。\n\n例：\n2026-08-25, 9450");
-    return;
-  }
-  var added = 0, updated = 0;
-  r.ok.forEach(function(x){
-    if(db.steps[x.date] == null) added++;
-    else if(db.steps[x.date] !== x.steps) updated++;
-    db.steps[x.date] = x.steps;
-  });
-  save(); renderSummary(); resetStepForm();
-  $("stBulk").value = "";
-  var msg = r.ok.length + "日ぶんを取り込みました（新規 " + added + "日 / 更新 " + updated + "日）"
-          + (r.skipped ? " ・ 読めなかった行 " + r.skipped : "");
-  $("stBulkInfo").style.display = ""; $("stBulkInfo").textContent = msg;
-  toast(r.ok.length + "日ぶんを取り込みました");
 });
 
 // ショートカットでコピーした歩数をクリップボードから取り込む
@@ -2104,7 +2084,7 @@ $("wipe").addEventListener("click", function(){
 
 /* ---------- 初期化 ---------- */
 function renderAll(){
-  renderWeatherSelect(); renderAlcPresets(); renderQuickLog();
+  renderWeatherSelect(); renderAlcPresets(); renderQuickLog(); renderQuickDrinks();
   resetBodyForm(); resetMealForm(); resetLogForm(); resetStepForm();
   renderSummary(); renderHistChips(); renderHistory();
   renderModeChips(); renderRangeChips(); renderSettings();
