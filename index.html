@@ -212,6 +212,63 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
+    <h2>食事</h2>
+    <div class="quick three" id="quickDrink"></div>
+    <p class="hint" style="margin:8px 0 12px">タップするとその時刻ですぐ記録します。</p>
+    <div id="mealEditBar"></div>
+    <div class="field">
+      <label for="mDt">日時</label>
+      <div class="dtrow">
+        <input type="datetime-local" id="mDt">
+        <button type="button" class="btn sec" id="mNow">現在時刻</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>区分</label>
+      <div class="chips" id="mTypeChips"></div>
+    </div>
+    <div class="field">
+      <label for="mN">内容</label>
+      <input type="text" id="mN" placeholder="鶏むね肉サラダ、ごはん150g">
+    </div>
+    <p class="hint" id="recentHint" style="display:none;margin:-6px 0 4px">よく使う内容（タップで入力）</p>
+    <div class="chips" id="recentChips" style="margin-bottom:10px"></div>
+    <div class="row">
+      <div class="field">
+        <label for="mK">カロリー (kcal・任意)</label>
+        <input type="number" id="mK" inputmode="numeric" step="1" min="0" max="20000" placeholder="520">
+      </div>
+      <div class="field">
+        <label for="mP">たんぱく質 (g・任意)</label>
+        <input type="number" id="mP" inputmode="decimal" step="0.1" min="0" max="1000" placeholder="32">
+      </div>
+    </div>
+    <div class="field">
+      <label>アルコール（飲んだときだけ・タップで入力）</label>
+      <div class="chips" id="alcPresets"></div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="mMl">酒量 (ml)</label>
+        <input type="number" id="mMl" inputmode="numeric" step="10" min="0" max="5000" placeholder="350">
+      </div>
+      <div class="field">
+        <label for="mAbv">度数 (%)</label>
+        <input type="number" id="mAbv" inputmode="decimal" step="0.1" min="0" max="100" placeholder="5">
+      </div>
+    </div>
+    <p class="hint" id="alcCalc" style="margin:-4px 0 10px"></p>
+    <div class="field">
+      <label for="mM">メモ（任意）</label>
+      <input type="text" id="mM" placeholder="外食 / 作り置き など">
+    </div>
+    <div class="row">
+      <button class="btn" id="mSave">食事を記録</button>
+      <button class="btn sec" id="mCancel" style="display:none">キャンセル</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>体組成・バイタル・環境</h2>
     <div id="bodyEditBar"></div>
     <div class="field">
@@ -267,63 +324,6 @@ nav button.on{color:var(--accent)}
       <button class="btn" id="bSave">記録する</button>
       <button class="btn sec" id="bCancel" style="display:none">キャンセル</button>
     </div>
-  </div>
-
-  <div class="card">
-    <h2>食事</h2>
-    <div class="quick three" id="quickDrink"></div>
-    <p class="hint" style="margin:8px 0 12px">タップするとその時刻ですぐ記録します。</p>
-    <div id="mealEditBar"></div>
-    <div class="field">
-      <label for="mDt">日時</label>
-      <div class="dtrow">
-        <input type="datetime-local" id="mDt">
-        <button type="button" class="btn sec" id="mNow">現在時刻</button>
-      </div>
-    </div>
-    <div class="field">
-      <label>区分</label>
-      <div class="chips" id="mTypeChips"></div>
-    </div>
-    <div class="field">
-      <label for="mN">内容</label>
-      <input type="text" id="mN" placeholder="鶏むね肉サラダ、ごはん150g">
-    </div>
-    <div class="row">
-      <div class="field">
-        <label for="mK">カロリー (kcal・任意)</label>
-        <input type="number" id="mK" inputmode="numeric" step="1" min="0" max="20000" placeholder="520">
-      </div>
-      <div class="field">
-        <label for="mP">たんぱく質 (g・任意)</label>
-        <input type="number" id="mP" inputmode="decimal" step="0.1" min="0" max="1000" placeholder="32">
-      </div>
-    </div>
-    <div class="field">
-      <label>アルコール（飲んだときだけ・タップで入力）</label>
-      <div class="chips" id="alcPresets"></div>
-    </div>
-    <div class="row">
-      <div class="field">
-        <label for="mMl">酒量 (ml)</label>
-        <input type="number" id="mMl" inputmode="numeric" step="10" min="0" max="5000" placeholder="350">
-      </div>
-      <div class="field">
-        <label for="mAbv">度数 (%)</label>
-        <input type="number" id="mAbv" inputmode="decimal" step="0.1" min="0" max="100" placeholder="5">
-      </div>
-    </div>
-    <p class="hint" id="alcCalc" style="margin:-4px 0 10px"></p>
-    <div class="field">
-      <label for="mM">メモ（任意）</label>
-      <input type="text" id="mM" placeholder="外食 / 作り置き など">
-    </div>
-    <div class="row">
-      <button class="btn" id="mSave">食事を記録</button>
-      <button class="btn sec" id="mCancel" style="display:none">キャンセル</button>
-    </div>
-    <p class="hint" id="recentHint" style="display:none">よく使う内容（タップで入力）</p>
-    <div class="chips" id="recentChips"></div>
   </div>
 
   <div class="card">
@@ -491,7 +491,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.8.3";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.8.4";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
