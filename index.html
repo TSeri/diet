@@ -491,7 +491,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.8.4";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.8.5";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -840,9 +840,12 @@ $("mSave").addEventListener("click", function(){
 
 /* よく使う内容（直近の食事名 上位8件） */
 function renderRecent(){
+  // 上のワンタップボタンにあるものは重複するので出さない
+  var quick = {};
+  QUICK_DRINKS.forEach(function(d){ quick[d[0]] = 1; });
   var counts = {};
   db.meals.slice().sort(sortDesc).slice(0,120).forEach(function(m){
-    if(!m.name) return;
+    if(!m.name || quick[m.name]) return;
     if(!counts[m.name]) counts[m.name] = { n:0, kcal:m.kcal, protein:m.protein, type:m.type, ml:m.ml, abv:m.abv };
     counts[m.name].n++;
   });
