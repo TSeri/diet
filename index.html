@@ -39,9 +39,17 @@ body{
 header{
   position:sticky; top:0; z-index:20;
   background:var(--card); border-bottom:1px solid var(--line);
-  padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
-  display:flex; align-items:baseline; gap:10px;
+  padding:calc(10px + env(safe-area-inset-top)) 12px 10px;
 }
+.hrow{display:flex; align-items:baseline; gap:10px; padding:0 4px}
+/* 記録タブで常に見える共通の日時。ここ1か所ですべての記録の日時が決まる */
+.dtbar{display:none; align-items:center; gap:8px; margin-top:8px}
+body.rec .dtbar{display:flex}
+.dtbar label{margin:0; white-space:nowrap; font-size:12px; font-weight:700; color:var(--sub)}
+.dtbar input{flex:1; min-width:0; padding:7px 9px; font-size:15px}
+.dtbar .btn{width:auto; flex:0 0 auto; padding:8px 10px; font-size:12px}
+.dtbar.pinned input{border-color:var(--accent)}
+.dtbar.pinned .btn{background:var(--accent); color:#fff; border-color:var(--accent)}
 header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em}
 header .today{font-size:12px;color:var(--sub);margin-left:auto}
 main{max-width:760px;margin:0 auto;padding:14px 12px 24px}
@@ -165,8 +173,15 @@ nav button.on{color:var(--accent)}
 <body>
 
 <header>
-  <h1>ダイエット記録</h1>
-  <span class="today" id="todayLabel"></span>
+  <div class="hrow">
+    <h1>ダイエット記録</h1>
+    <span class="today" id="todayLabel"></span>
+  </div>
+  <div class="dtbar" id="dtBar">
+    <label for="shDt">日時</label>
+    <input type="datetime-local" id="shDt">
+    <button type="button" class="btn sec" id="shNow">現在時刻</button>
+  </div>
 </header>
 
 <main>
@@ -182,16 +197,9 @@ nav button.on{color:var(--accent)}
     <h2>生活記録</h2>
     <div id="logEditBar"></div>
     <div class="quick" id="quickLog"></div>
-    <p class="hint" style="margin:8px 0 0">タップするとその時刻ですぐ記録します。</p>
+    <p class="hint" style="margin:8px 0 0">タップすると上の日時ですぐ記録します。</p>
     <details id="logDetail">
-      <summary>時刻を指定する・便の状態を残す</summary>
-      <div class="field">
-        <label for="lDt">日時</label>
-        <div class="dtrow">
-          <input type="datetime-local" id="lDt">
-          <button type="button" class="btn sec" id="lNow">現在時刻</button>
-        </div>
-      </div>
+      <summary>便の状態を残す・メモを書く</summary>
       <div class="field">
         <label>種類</label>
         <div class="chips" id="lKindChips"></div>
@@ -214,15 +222,8 @@ nav button.on{color:var(--accent)}
   <div class="card">
     <h2>食事</h2>
     <div class="quick three" id="quickDrink"></div>
-    <p class="hint" style="margin:8px 0 12px">タップするとその時刻ですぐ記録します。</p>
+    <p class="hint" style="margin:8px 0 12px">タップすると上の日時ですぐ記録します。</p>
     <div id="mealEditBar"></div>
-    <div class="field">
-      <label for="mDt">日時</label>
-      <div class="dtrow">
-        <input type="datetime-local" id="mDt">
-        <button type="button" class="btn sec" id="mNow">現在時刻</button>
-      </div>
-    </div>
     <div class="field">
       <label>区分</label>
       <div class="chips" id="mTypeChips"></div>
@@ -271,13 +272,6 @@ nav button.on{color:var(--accent)}
   <div class="card">
     <h2>体組成・バイタル・環境</h2>
     <div id="bodyEditBar"></div>
-    <div class="field">
-      <label for="bDt">測定日時</label>
-      <div class="dtrow">
-        <input type="datetime-local" id="bDt">
-        <button type="button" class="btn sec" id="bNow">現在時刻</button>
-      </div>
-    </div>
     <div class="row">
       <div class="field">
         <label for="bW">体重 (kg)</label>
@@ -491,7 +485,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.8.6";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.9.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -611,6 +605,8 @@ function $(id){ return document.getElementById(id); }
 var views = ["rec","chart","hist","set"];
 function show(v){
   views.forEach(function(x){ $("view-"+x).classList.toggle("active", x===v); });
+  document.body.classList.toggle("rec", v==="rec");
+  if(v==="rec") tickSharedDate();
   Array.prototype.forEach.call(document.querySelectorAll("nav button"), function(b){
     b.classList.toggle("on", b.dataset.v===v);
   });
@@ -625,16 +621,41 @@ Array.prototype.forEach.call(document.querySelectorAll("nav button"), function(b
   b.addEventListener("click", function(){ show(b.dataset.v); });
 });
 
-/* ---------- 日時欄を現在時刻に合わせるボタン ---------- */
-function bindNowButton(btnId, inputId){
-  $(btnId).addEventListener("click", function(){
-    $(inputId).value = toLocalInput(new Date());
-    toast("現在の日時にしました");
-  });
+/* ---------- 共通の日時（ヘッダーに固定） ----------
+   体組成・生活記録・食事のすべてがこの1か所の日時で記録される。
+   触っていない間は現在時刻に追従し、手で変えた時点で固定される。 */
+var dtPinned = false;
+
+function sharedDate(){
+  return fromLocalInput($("shDt").value);   // 不正なら null
 }
-bindNowButton("bNow", "bDt");
-bindNowButton("lNow", "lDt");
-bindNowButton("mNow", "mDt");
+function setSharedDate(d, pinned){
+  $("shDt").value = toLocalInput(d);
+  dtPinned = !!pinned;
+  renderDtBar();
+}
+function renderDtBar(){
+  $("dtBar").classList.toggle("pinned", dtPinned);
+  $("shNow").textContent = dtPinned ? "今に戻す" : "現在時刻";
+}
+// 固定していない間は現在時刻を映し続ける
+function tickSharedDate(){
+  if(dtPinned) return;
+  var now = toLocalInput(new Date());
+  if($("shDt").value !== now) $("shDt").value = now;
+}
+$("shNow").addEventListener("click", function(){
+  setSharedDate(new Date(), false);
+  toast("現在の日時にしました");
+});
+$("shDt").addEventListener("change", function(){
+  if(!sharedDate()){ setSharedDate(new Date(), false); return; }
+  dtPinned = true; renderDtBar();
+});
+setInterval(tickSharedDate, 30000);
+document.addEventListener("visibilitychange", function(){
+  if(!document.hidden) tickSharedDate();
+});
 
 /* ---------- 編集の共通処理 ---------- */
 // 編集モードに入ったカードを画面上部に出す。
@@ -653,8 +674,8 @@ function scrollToCard(el){
 var editBodyId = null;
 
 function resetBodyForm(){
+  if(editBodyId) setSharedDate(new Date(), false);
   editBodyId = null;
-  $("bDt").value = toLocalInput(new Date());
   $("bW").value = ""; $("bF").value = "";
   $("bT").value = ""; $("bS").value = ""; $("bP").value = "";
   $("bWx").value = ""; $("bR").value = ""; $("bH").value = "";
@@ -667,7 +688,7 @@ function editBody(id){
   var r = db.body.find(function(x){ return x.id===id; });
   if(!r) return;
   editBodyId = id;
-  $("bDt").value = toLocalInput(new Date(r.dt));
+  setSharedDate(new Date(r.dt), true);
   $("bW").value = r.weight==null ? "" : r.weight;
   $("bF").value = r.fat==null ? "" : r.fat;
   $("bT").value = r.temp==null ? "" : r.temp;
@@ -687,8 +708,8 @@ function editBody(id){
 function cancelBodyEdit(){ resetBodyForm(); toast("編集をやめました"); }
 $("bCancel").addEventListener("click", cancelBodyEdit);
 $("bSave").addEventListener("click", function(){
-  var d = fromLocalInput($("bDt").value);
-  if(!d){ alert("測定日時を入力してください。"); return; }
+  var d = sharedDate();
+  if(!d){ alert("上の日時を入力してください。"); return; }
   var w = num($("bW").value), f = num($("bF").value);
   var tmp = num($("bT").value), spo = num($("bS").value), pul = num($("bP").value);
   var wx = $("bWx").value, room = num($("bR").value), hum = num($("bH").value);
@@ -731,7 +752,9 @@ function renderQuickDrinks(){
   }).join("");
   Array.prototype.forEach.call($("quickDrink").children, function(b){
     b.onclick = function(){
-      db.meals.push({ id:uid(), dt:new Date().toISOString(), type:"飲み物", name:b.dataset.n,
+      var d = sharedDate();
+      if(!d){ alert("上の日時を入力してください。"); return; }
+      db.meals.push({ id:uid(), dt:d.toISOString(), type:"飲み物", name:b.dataset.n,
                       kcal:0, protein:null, ml:null, abv:null, alc:null, memo:"" });
       save(); renderSummary(); renderRecent();
       toast(b.dataset.n+"を記録しました");
@@ -773,12 +796,13 @@ $("mMl").addEventListener("input", renderAlcCalc);
 $("mAbv").addEventListener("input", renderAlcCalc);
 
 function guessType(){
-  var h = new Date().getHours();
+  var d = sharedDate() || new Date();
+  var h = d.getHours();
   return h<10 ? "朝食" : h<15 ? "昼食" : h<21 ? "夕食" : "間食";
 }
 function resetMealForm(){
+  if(editMealId) setSharedDate(new Date(), false);
   editMealId = null;
-  $("mDt").value = toLocalInput(new Date());
   $("mN").value=""; $("mK").value=""; $("mP").value=""; $("mM").value="";
   $("mMl").value=""; $("mAbv").value=""; renderAlcCalc();
   mealType = guessType(); renderTypeChips();
@@ -791,7 +815,7 @@ function editMeal(id){
   var r = db.meals.find(function(x){ return x.id===id; });
   if(!r) return;
   editMealId = id;
-  $("mDt").value = toLocalInput(new Date(r.dt));
+  setSharedDate(new Date(r.dt), true);
   $("mN").value = r.name || "";
   $("mK").value = r.kcal==null ? "" : r.kcal;
   $("mP").value = r.protein==null ? "" : r.protein;
@@ -811,8 +835,8 @@ function editMeal(id){
 function cancelMealEdit(){ resetMealForm(); toast("編集をやめました"); }
 $("mCancel").addEventListener("click", cancelMealEdit);
 $("mSave").addEventListener("click", function(){
-  var d = fromLocalInput($("mDt").value);
-  if(!d){ alert("日時を入力してください。"); return; }
+  var d = sharedDate();
+  if(!d){ alert("上の日時を入力してください。"); return; }
   var name = $("mN").value.trim();
   if(!name){ alert("内容を入力してください。"); return; }
   var k = num($("mK").value), p = num($("mP").value);
@@ -881,7 +905,9 @@ function renderQuickLog(){
   }).join("");
   Array.prototype.forEach.call($("quickLog").children, function(b){
     b.onclick = function(){
-      db.logs.push({ id:uid(), dt:new Date().toISOString(), kind:b.dataset.k, bristol:null, memo:"" });
+      var d = sharedDate();
+      if(!d){ alert("上の日時を入力してください。"); return; }
+      db.logs.push({ id:uid(), dt:d.toISOString(), kind:b.dataset.k, bristol:null, memo:"" });
       save(); renderSummary();
       toast(logLabel(b.dataset.k)+"を記録しました");
     };
@@ -912,8 +938,8 @@ function renderBristolChips(){
   });
 }
 function resetLogForm(){
+  if(editLogId) setSharedDate(new Date(), false);
   editLogId = null;
-  $("lDt").value = toLocalInput(new Date());
   $("lM").value = "";
   logKind = "wake"; logBristol = null;
   renderLogKindChips(); renderBristolChips();
@@ -925,7 +951,7 @@ function editLog(id){
   var r = db.logs.find(function(x){ return x.id===id; });
   if(!r) return;
   editLogId = id;
-  $("lDt").value = toLocalInput(new Date(r.dt));
+  setSharedDate(new Date(r.dt), true);
   $("lM").value = r.memo || "";
   logKind = r.kind; logBristol = r.bristol || null;
   renderLogKindChips(); renderBristolChips();
@@ -940,8 +966,8 @@ function editLog(id){
 function cancelLogEdit(){ resetLogForm(); toast("編集をやめました"); }
 $("lCancel").addEventListener("click", cancelLogEdit);
 $("lSave").addEventListener("click", function(){
-  var d = fromLocalInput($("lDt").value);
-  if(!d){ alert("日時を入力してください。"); return; }
+  var d = sharedDate();
+  if(!d){ alert("上の日時を入力してください。"); return; }
   var bris = (logKind === "stool") ? logBristol : null;
   if(editLogId){
     var r = db.logs.find(function(x){ return x.id===editLogId; });
@@ -2089,6 +2115,7 @@ $("wipe").addEventListener("click", function(){
 
 /* ---------- 初期化 ---------- */
 function renderAll(){
+  setSharedDate(new Date(), false);
   renderWeatherSelect(); renderAlcPresets(); renderQuickLog(); renderQuickDrinks();
   resetBodyForm(); resetMealForm(); resetLogForm(); resetStepForm();
   renderSummary(); renderHistChips(); renderHistory();
@@ -2098,10 +2125,12 @@ function renderAll(){
 renderAll();
 ingestQuery();   // URLに歩数が付いていれば取り込む
 
+var startView = "rec";
 try{
   var v = localStorage.getItem(KEY+":view");
-  if(views.indexOf(v)>=0) show(v); 
+  if(views.indexOf(v)>=0) startView = v;
 }catch(e){}
+show(startView);   // 記録タブの判定（日時バーの表示）もここで決まる
 
 // ホーム画面に追加した場合のオフライン化（http/https で配信したときのみ有効）
 if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
