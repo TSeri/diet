@@ -485,12 +485,16 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.9.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.9.1";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
-// よく飲むもの [名前, アイコン]
-var QUICK_DRINKS = [["麦茶","🫖"],["緑茶","🍵"],["コーヒー","☕"],["水","🚰"],["炭酸水","🥤"]];
+// ワンタップで記録するもの [名前, アイコン, 区分, kcal, たんぱく質g]
+var QUICK_ITEMS = [
+  ["麦茶","🫖","飲み物",0,null], ["緑茶","🍵","飲み物",0,null], ["コーヒー","☕","飲み物",0,null],
+  ["水","🚰","飲み物",0,null],   ["炭酸水","🥤","飲み物",0,null],
+  ["ナッツ","🥜","間食",158,4.5]
+];
 // お酒のプリセット [表示名, 量ml, 度数%]
 var ALC_PRESETS = [
   ["ビール350ml", 350, 5], ["ビール500ml", 500, 5], ["ワイン120ml", 120, 12]
@@ -747,17 +751,18 @@ var editMealId = null;
 var mealType = MEAL_TYPES[0];
 
 function renderQuickDrinks(){
-  $("quickDrink").innerHTML = QUICK_DRINKS.map(function(d){
-    return '<button type="button" data-n="'+esc(d[0])+'"><span class="ic">'+d[1]+"</span>"+esc(d[0])+"</button>";
+  $("quickDrink").innerHTML = QUICK_ITEMS.map(function(q, i){
+    return '<button type="button" data-i="'+i+'" data-n="'+esc(q[0])+'"><span class="ic">'+q[1]+"</span>"+esc(q[0])+"</button>";
   }).join("");
   Array.prototype.forEach.call($("quickDrink").children, function(b){
     b.onclick = function(){
       var d = sharedDate();
       if(!d){ alert("上の日時を入力してください。"); return; }
-      db.meals.push({ id:uid(), dt:d.toISOString(), type:"飲み物", name:b.dataset.n,
-                      kcal:0, protein:null, ml:null, abv:null, alc:null, memo:"" });
+      var q = QUICK_ITEMS[+b.dataset.i];
+      db.meals.push({ id:uid(), dt:d.toISOString(), type:q[2], name:q[0],
+                      kcal:q[3], protein:q[4], ml:null, abv:null, alc:null, memo:"" });
       save(); renderSummary(); renderRecent();
-      toast(b.dataset.n+"を記録しました");
+      toast(q[0]+"を記録しました");
     };
   });
 }
@@ -867,7 +872,7 @@ function renderRecent(){
   // ワンタップボタンとアルコールのプリセットにあるものは、
   // 同じカード内にボタンがあって重複するので出さない
   var quick = {};
-  QUICK_DRINKS.forEach(function(d){ quick[d[0]] = 1; });
+  QUICK_ITEMS.forEach(function(q){ quick[q[0]] = 1; });
   ALC_PRESETS.forEach(function(a){ quick[a[0]] = 1; });
   var counts = {};
   db.meals.slice().sort(sortDesc).slice(0,120).forEach(function(m){
@@ -885,10 +890,11 @@ function renderRecent(){
     b.onclick = function(){
       var n = b.dataset.n, c = counts[n];
       $("mN").value = n;
-      if(c.kcal!=null && !$("mK").value) $("mK").value = c.kcal;
-      if(c.protein!=null && !$("mP").value) $("mP").value = c.protein;
-      if(c.ml!=null && !$("mMl").value) $("mMl").value = c.ml;
-      if(c.abv!=null && !$("mAbv").value) $("mAbv").value = c.abv;
+      // 別の項目を押したら前の値が残らないよう、毎回入れ替える
+      $("mK").value   = c.kcal    == null ? "" : c.kcal;
+      $("mP").value   = c.protein == null ? "" : c.protein;
+      $("mMl").value  = c.ml      == null ? "" : c.ml;
+      $("mAbv").value = c.abv     == null ? "" : c.abv;
       renderAlcCalc();
     };
   });
