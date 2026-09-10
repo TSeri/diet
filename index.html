@@ -73,6 +73,8 @@ textarea{min-height:56px;resize:vertical}
 .dtrow{display:flex;gap:8px;align-items:stretch}
 .dtrow input{flex:1;min-width:0}
 .dtrow .btn{width:auto;flex:0 0 auto;padding:10px 16px;font-size:14px}
+.dtrow .btn.nav{padding:10px 11px}
+#rangeNav.hide{display:none}
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;
   padding:11px 16px;border-radius:10px;border:1px solid transparent;
@@ -349,6 +351,13 @@ nav button.on{color:var(--accent)}
     <h2 id="chartTitle">体重・体脂肪率の推移</h2>
     <div class="chips" id="modeChips"></div>
     <div class="chips" id="rangeChips"></div>
+    <div class="dtrow" id="rangeNav" style="margin-top:8px">
+      <button type="button" class="btn sec nav" id="rangePrev">◀</button>
+      <input type="date" id="rangeStart">
+      <button type="button" class="btn sec nav" id="rangeNext">▶</button>
+      <button type="button" class="btn sec" id="rangeLatest">最新</button>
+    </div>
+    <p class="hint" id="rangeLabel" style="margin:6px 0 0"></p>
     <canvas id="chart"></canvas>
     <div class="chips" id="chartLegend" style="margin-top:2px"></div>
     <div class="stats" id="chartStats" style="margin-top:10px"></div>
@@ -357,6 +366,11 @@ nav button.on{color:var(--accent)}
     <h2>1日の摂取カロリー</h2>
     <canvas id="kcalChart" style="height:180px"></canvas>
     <p class="hint" id="kcalHint"></p>
+  </div>
+  <div class="card">
+    <h2>1日のたんぱく質</h2>
+    <canvas id="proteinChart" style="height:180px"></canvas>
+    <p class="hint" id="proteinHint"></p>
   </div>
   <div class="card">
     <h2>1日の歩数</h2>
@@ -485,7 +499,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.9.1";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.10.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -1397,16 +1411,72 @@ function logLi(r){
 }
 
 /* ---------- グラフ ---------- */
-var range = 30; // 日数。0 = 全期間
+var range = 30;        // 日数。0 = 全期間
+var rangeStart = null; // 表示の開始日。null なら「最新」（今日で終わる窓）
+
+// いま表示している期間 [from, to)
+function windowRange(){
+  var now = Date.now();
+  if(!range) return { from: -Infinity, to: now };
+  if(rangeStart){
+    var p = rangeStart.split("-");
+    var d = new Date(+p[0], +p[1]-1, +p[2]);   // 開始日の0:00
+    return { from: d.getTime(), to: d.getTime() + range*86400000 };
+  }
+  return { from: now - range*86400000, to: now };
+}
+// 「最新」表示のときの実質的な開始日
+function effectiveStartKey(){
+  if(rangeStart) return rangeStart;
+  var d = new Date(); d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - (range-1));
+  return dayKeyOf(d);
+}
+function shiftRange(dir){
+  var p = effectiveStartKey().split("-");
+  var d = new Date(+p[0], +p[1]-1, +p[2]);
+  d.setDate(d.getDate() + dir*range);
+  // 未来にはみ出すなら「最新」に戻す
+  rangeStart = (d.getTime() + range*86400000 >= Date.now()) ? null : dayKeyOf(d);
+  renderRangeNav(); renderChart();
+}
+
 function renderRangeChips(){
   var opts = [[7,"1週間"],[30,"1ヶ月"],[90,"3ヶ月"],[180,"半年"],[0,"全期間"]];
   $("rangeChips").innerHTML = opts.map(function(o){
     return '<button type="button" class="chip'+(o[0]===range?" on":"")+'" data-r="'+o[0]+'">'+o[1]+"</button>";
   }).join("");
   Array.prototype.forEach.call($("rangeChips").children, function(b){
-    b.onclick = function(){ range = +b.dataset.r; renderRangeChips(); renderChart(); };
+    b.onclick = function(){ range = +b.dataset.r; renderRangeChips(); renderRangeNav(); renderChart(); };
   });
 }
+
+function renderRangeNav(){
+  $("rangeNav").classList.toggle("hide", !range);   // 全期間では動かせない
+  if(!range){ $("rangeLabel").textContent = "記録のある全期間"; return; }
+  var startKey = effectiveStartKey();
+  $("rangeStart").value = startKey;
+  $("rangeStart").max = todayKey();
+  $("rangeNext").disabled = (rangeStart === null);
+  $("rangeLatest").disabled = (rangeStart === null);
+  var w = windowRange();
+  var last = new Date(w.to - 1);
+  function md(k){ return fmtDay(k).replace(/（[^）]*）/g, ""); }   // 曜日や「今日」は落とす
+  $("rangeLabel").textContent = md(startKey) + " 〜 " + md(dayKeyOf(last))
+    + (rangeStart === null ? "（最新）" : "");
+}
+$("rangePrev").addEventListener("click", function(){ shiftRange(-1); });
+$("rangeNext").addEventListener("click", function(){ shiftRange(1); });
+$("rangeLatest").addEventListener("click", function(){
+  rangeStart = null; renderRangeNav(); renderChart();
+});
+$("rangeStart").addEventListener("change", function(){
+  var k = $("rangeStart").value;
+  if(!isDayKey(k)){ renderRangeNav(); return; }
+  var p = k.split("-"), d = new Date(+p[0], +p[1]-1, +p[2]);
+  rangeStart = (d.getTime() + range*86400000 >= Date.now()) ? null : k;
+  renderRangeNav(); renderChart();
+});
 
 function niceTicks(min, max, count){
   if(min===max){ min-=1; max+=1; }
@@ -1481,9 +1551,11 @@ function renderChart(){
   var sub = cssVar("--sub"), line = cssVar("--line"),
       cw = cssVar(L.cvar), cf = cssVar(R.cvar), acc = cssVar("--accent");
 
-  var now = Date.now();
-  var from = range ? now - range*86400000 : -Infinity;
-  var rows = bodySorted().filter(function(r){ return new Date(r.dt).getTime() >= from; });
+  var w = windowRange();
+  var rows = bodySorted().filter(function(r){
+    var t = new Date(r.dt).getTime();
+    return t >= w.from && t <= w.to;
+  });
 
   var wp = rows.filter(function(r){ return r[L.key]!=null; }).map(function(r){ return {t:new Date(r.dt).getTime(), v:r[L.key]}; });
   var fp = rows.filter(function(r){ return r[R.key]!=null; }).map(function(r){ return {t:new Date(r.dt).getTime(), v:r[R.key]}; });
@@ -1500,7 +1572,7 @@ function renderChart(){
   var all = wp.concat(fp);
   var t0 = Math.min.apply(null, all.map(function(p){return p.t;}));
   var t1 = Math.max.apply(null, all.map(function(p){return p.t;}));
-  if(range){ t1 = Math.max(t1, now); t0 = Math.min(t0, now - range*86400000); }
+  if(range){ t1 = Math.max(t1, w.to); t0 = Math.min(t0, w.from); }
   if(t1===t0){ t0 -= 43200000; t1 += 43200000; }
 
   var s = db.settings || {};
@@ -1662,11 +1734,13 @@ function renderBarChart(cv, hintEl, opt){
   var sub = cssVar("--sub"), line = cssVar("--line"), acc = cssVar("--accent"), danger = cssVar("--danger");
 
   var days = range ? Math.min(range, 30) : 14;
-  var now = new Date(); now.setHours(0,0,0,0);
+  var w = windowRange();
+  var endDay = new Date(isFinite(w.to) ? w.to - 1 : Date.now());
+  endDay.setHours(0,0,0,0);
   var buckets = [];
   for(var i=days-1;i>=0;i--){
-    var d = new Date(now); d.setDate(d.getDate()-i);
-    buckets.push({ key: dayKey(d.toISOString()), d:d, v:0, has:false });
+    var d = new Date(endDay); d.setDate(d.getDate()-i);
+    buckets.push({ key: dayKeyOf(d), d:d, v:0, has:false });
   }
   var map = {}; buckets.forEach(function(b){ map[b.key]=b; });
   var records = opt.records || db.meals;
@@ -1732,6 +1806,7 @@ function renderBarChart(cv, hintEl, opt){
     hitDays: hit.length,
     recordedDays: recorded,
     zeroDays: recorded - hit.length,   // 記録のある日のうち、0だった日
+    goalDays: goal ? buckets.filter(function(b){ return b.v >= goal; }).length : 0,
     avg: hit.reduce(function(a,b){ return a+b.v; },0)/hit.length
   });
 }
@@ -1743,13 +1818,29 @@ function renderKcalChart(){
     emptyMsg: "カロリーの記録がありません",
     emptyHint: "食事にカロリーを入力すると、日別の棒グラフが表示されます。",
     hint: function(st){
-      return "直近"+st.days+"日のうち"+st.hitDays+"日を記録・平均 "+Math.round(st.avg)+" kcal/日"
+      return "この期間の"+st.hitDays+"日を記録・平均 "+Math.round(st.avg)+" kcal/日"
         + (st.goal ? "（目標 "+st.goal+" kcal）" : "");
     }
   });
+  renderProteinChart();
   renderStepChart();
   renderSleepChart();
   renderAlcChart();
+}
+
+function renderProteinChart(){
+  var s = db.settings || {};
+  renderBarChart($("proteinChart"), $("proteinHint"), {
+    valueOf: function(m){ return m.protein || 0; },
+    goal: s.protein,
+    moreIsBetter: true,   // 目標は下限なので、超えても警告色にしない
+    emptyMsg: "たんぱく質の記録がありません",
+    emptyHint: "食事にたんぱく質を入力すると、日別の棒グラフが表示されます。",
+    hint: function(st){
+      return "この期間の"+st.hitDays+"日を記録・平均 "+f1(st.avg)+" g/日"
+        + (st.goal ? "（目標 "+st.goal+" g・達成 "+st.goalDays+"日）" : "");
+    }
+  });
 }
 
 function renderStepChart(){
@@ -1764,9 +1855,8 @@ function renderStepChart(){
     emptyMsg: "歩数の記録がありません",
     emptyHint: "「歩数」カードから入力するか、ショートカットで取り込むと表示されます。",
     hint: function(st){
-      return "直近"+st.days+"日のうち"+st.hitDays+"日を記録・平均 "+fmtSteps(Math.round(st.avg))+" 歩/日"
-        + (st.goal ? "（目標 "+fmtSteps(st.goal)+" 歩・達成 "
-            + recs.filter(function(r){ return r.v >= st.goal; }).length + "日）" : "");
+      return "この期間の"+st.hitDays+"日を記録・平均 "+fmtSteps(Math.round(st.avg))+" 歩/日"
+        + (st.goal ? "（目標 "+fmtSteps(st.goal)+" 歩・達成 "+st.goalDays+"日）" : "");
     }
   });
 }
@@ -1780,7 +1870,7 @@ function renderSleepChart(){
     emptyMsg: "睡眠の記録がありません",
     emptyHint: "「就寝」と「起床」を両方記録すると、その日の睡眠時間が出ます。",
     hint: function(st){
-      return "直近"+st.days+"日のうち"+st.hitDays+"日を記録・平均 "+f1(st.avg)+" 時間/日";
+      return "この期間の"+st.hitDays+"日を記録・平均 "+f1(st.avg)+" 時間/日";
     }
   });
 }
@@ -1792,7 +1882,7 @@ function renderAlcChart(){
     emptyMsg: "アルコールの記録がありません",
     emptyHint: "食事の「アルコール」欄に入力すると、日別の純アルコール量が表示されます。",
     hint: function(st){
-      return "直近"+st.days+"日のうち記録のある"+st.recordedDays+"日：飲んだ日 "+st.hitDays+"日 / 休肝日 "+st.zeroDays+"日"
+      return "記録のある"+st.recordedDays+"日：飲んだ日 "+st.hitDays+"日 / 休肝日 "+st.zeroDays+"日"
         + "・飲んだ日の平均 "+f1(st.avg)+" g"
         + (st.goal ? "（上限 "+st.goal+" g）" : "");
     }
@@ -2125,7 +2215,7 @@ function renderAll(){
   renderWeatherSelect(); renderAlcPresets(); renderQuickLog(); renderQuickDrinks();
   resetBodyForm(); resetMealForm(); resetLogForm(); resetStepForm();
   renderSummary(); renderHistChips(); renderHistory();
-  renderModeChips(); renderRangeChips(); renderSettings();
+  renderModeChips(); renderRangeChips(); renderRangeNav(); renderSettings();
   if($("view-chart").classList.contains("active")) renderChart();
 }
 renderAll();
