@@ -499,15 +499,18 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.10.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.10.1";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
 // ワンタップで記録するもの [名前, アイコン, 区分, kcal, たんぱく質g]
+// 区分が null のものは、日時の時刻から朝食／昼食／夕食／間食を自動で決める
+// 食べ物の値は自己記録（成分表ベース）の単品の値に揃えている
 var QUICK_ITEMS = [
   ["麦茶","🫖","飲み物",0,null], ["緑茶","🍵","飲み物",0,null], ["コーヒー","☕","飲み物",0,null],
   ["水","🚰","飲み物",0,null],   ["炭酸水","🥤","飲み物",0,null],
-  ["ナッツ","🥜","間食",158,4.5]
+  ["ナッツ","🥜",null,158,4.5],  ["バナナ","🍌",null,86,1.1],
+  ["味噌汁","🥣",null,40,3.0],   ["玄米0.5合","🍚",null,260,5.0]
 ];
 // お酒のプリセット [表示名, 量ml, 度数%]
 var ALC_PRESETS = [
@@ -773,7 +776,7 @@ function renderQuickDrinks(){
       var d = sharedDate();
       if(!d){ alert("上の日時を入力してください。"); return; }
       var q = QUICK_ITEMS[+b.dataset.i];
-      db.meals.push({ id:uid(), dt:d.toISOString(), type:q[2], name:q[0],
+      db.meals.push({ id:uid(), dt:d.toISOString(), type:q[2] || guessType(), name:q[0],
                       kcal:q[3], protein:q[4], ml:null, abv:null, alc:null, memo:"" });
       save(); renderSummary(); renderRecent();
       toast(q[0]+"を記録しました");
