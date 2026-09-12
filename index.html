@@ -238,12 +238,16 @@ nav button.on{color:var(--accent)}
     <div class="chips" id="recentChips" style="margin-bottom:10px"></div>
     <div class="row">
       <div class="field">
-        <label for="mK">カロリー (kcal・任意)</label>
+        <label for="mK">カロリー (kcal)</label>
         <input type="number" id="mK" inputmode="numeric" step="1" min="0" max="20000" placeholder="520">
       </div>
       <div class="field">
-        <label for="mP">たんぱく質 (g・任意)</label>
+        <label for="mP">たんぱく質 (g)</label>
         <input type="number" id="mP" inputmode="decimal" step="0.1" min="0" max="1000" placeholder="32">
+      </div>
+      <div class="field">
+        <label for="mS">塩分 (g)</label>
+        <input type="number" id="mS" inputmode="decimal" step="0.1" min="0" max="100" placeholder="1.5">
       </div>
     </div>
     <div class="field">
@@ -373,6 +377,11 @@ nav button.on{color:var(--accent)}
     <p class="hint" id="proteinHint"></p>
   </div>
   <div class="card">
+    <h2>1日の塩分</h2>
+    <canvas id="saltChart" style="height:180px"></canvas>
+    <p class="hint" id="saltHint"></p>
+  </div>
+  <div class="card">
     <h2>1日の歩数</h2>
     <canvas id="stepChart" style="height:180px"></canvas>
     <p class="hint" id="stepHint"></p>
@@ -422,6 +431,11 @@ nav button.on{color:var(--accent)}
         <label for="sP">1日の目標たんぱく質 (g)</label>
         <input type="number" id="sP" inputmode="decimal" step="1" min="0" max="1000" placeholder="100">
       </div>
+    </div>
+    <div class="field">
+      <label for="sSa">1日の塩分上限 (g)</label>
+      <input type="number" id="sSa" inputmode="decimal" step="0.5" min="0" max="100" placeholder="7.5">
+      <p class="hint">日本人の食事摂取基準（2020年版）の目標量は男性7.5g未満・女性6.5g未満、高血圧の治療では6g未満が目安とされています。</p>
     </div>
     <div class="field">
       <label for="sSt">1日の目標歩数</label>
@@ -499,18 +513,19 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.10.1";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.11.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
-// ワンタップで記録するもの [名前, アイコン, 区分, kcal, たんぱく質g]
+// ワンタップで記録するもの [名前, アイコン, 区分, kcal, たんぱく質g, 塩分g]
 // 区分が null のものは、日時の時刻から朝食／昼食／夕食／間食を自動で決める
-// 食べ物の値は自己記録（成分表ベース）の単品の値に揃えている
+// 食べ物のkcal・たんぱく質は自己記録（成分表ベース）の単品の値に揃えている
+// 塩分は一般的な目安。実際と違えば履歴から直せる
 var QUICK_ITEMS = [
-  ["麦茶","🫖","飲み物",0,null], ["緑茶","🍵","飲み物",0,null], ["コーヒー","☕","飲み物",0,null],
-  ["水","🚰","飲み物",0,null],   ["炭酸水","🥤","飲み物",0,null],
-  ["ナッツ","🥜",null,158,4.5],  ["バナナ","🍌",null,86,1.1],
-  ["味噌汁","🥣",null,40,3.0],   ["玄米0.5合","🍚",null,260,5.0]
+  ["麦茶","🫖","飲み物",0,null,0], ["緑茶","🍵","飲み物",0,null,0], ["コーヒー","☕","飲み物",0,null,0],
+  ["水","🚰","飲み物",0,null,0],   ["炭酸水","🥤","飲み物",0,null,0],
+  ["ナッツ","🥜",null,158,4.5,0],  ["バナナ","🍌",null,86,1.1,0],
+  ["味噌汁","🥣",null,40,3.0,1.2], ["玄米0.5合","🍚",null,260,5.0,0]
 ];
 // お酒のプリセット [表示名, 量ml, 度数%]
 var ALC_PRESETS = [
@@ -548,7 +563,7 @@ var db = load();
 
 function blank(){
   return { body: [], meals: [], logs: [], steps: {},
-           settings: { height:null, goal:null, kcal:null, protein:null, alcLimit:null, stepGoal:null }, v:1 };
+           settings: { height:null, goal:null, kcal:null, protein:null, alcLimit:null, saltLimit:null, stepGoal:null }, v:1 };
 }
 function load(){
   try{
@@ -777,7 +792,8 @@ function renderQuickDrinks(){
       if(!d){ alert("上の日時を入力してください。"); return; }
       var q = QUICK_ITEMS[+b.dataset.i];
       db.meals.push({ id:uid(), dt:d.toISOString(), type:q[2] || guessType(), name:q[0],
-                      kcal:q[3], protein:q[4], ml:null, abv:null, alc:null, memo:"" });
+                      kcal:q[3], protein:q[4], salt:q[5],
+                      ml:null, abv:null, alc:null, memo:"" });
       save(); renderSummary(); renderRecent();
       toast(q[0]+"を記録しました");
     };
@@ -825,7 +841,7 @@ function guessType(){
 function resetMealForm(){
   if(editMealId) setSharedDate(new Date(), false);
   editMealId = null;
-  $("mN").value=""; $("mK").value=""; $("mP").value=""; $("mM").value="";
+  $("mN").value=""; $("mK").value=""; $("mP").value=""; $("mS").value=""; $("mM").value="";
   $("mMl").value=""; $("mAbv").value=""; renderAlcCalc();
   mealType = guessType(); renderTypeChips();
   $("mSave").textContent = "食事を記録";
@@ -841,6 +857,7 @@ function editMeal(id){
   $("mN").value = r.name || "";
   $("mK").value = r.kcal==null ? "" : r.kcal;
   $("mP").value = r.protein==null ? "" : r.protein;
+  $("mS").value = r.salt==null ? "" : r.salt;
   $("mMl").value = r.ml==null ? "" : r.ml;
   $("mAbv").value = r.abv==null ? "" : r.abv;
   renderAlcCalc();
@@ -861,7 +878,7 @@ $("mSave").addEventListener("click", function(){
   if(!d){ alert("上の日時を入力してください。"); return; }
   var name = $("mN").value.trim();
   if(!name){ alert("内容を入力してください。"); return; }
-  var k = num($("mK").value), p = num($("mP").value);
+  var k = num($("mK").value), p = num($("mP").value), salt = num($("mS").value);
   var ml = num($("mMl").value), abv = num($("mAbv").value);
   if((ml==null) !== (abv==null)){
     alert("お酒の「酒量」と「度数」は両方入力してください。（片方だけだと純アルコール量を計算できません）");
@@ -869,15 +886,16 @@ $("mSave").addEventListener("click", function(){
   }
   if(ml!==null && (ml<0 || ml>5000)){ alert("酒量の値を確認してください。"); return; }
   if(abv!==null && (abv<0 || abv>100)){ alert("度数は 0〜100 の範囲で入力してください。"); return; }
+  if(salt!==null && (salt<0 || salt>100)){ alert("塩分は 0〜100 g の範囲で入力してください。"); return; }
   var alc = pureAlcohol(ml, abv);
 
   if(editMealId){
     var r = db.meals.find(function(x){ return x.id===editMealId; });
-    r.dt=d.toISOString(); r.type=mealType; r.name=name; r.kcal=k; r.protein=p;
+    r.dt=d.toISOString(); r.type=mealType; r.name=name; r.kcal=k; r.protein=p; r.salt=salt;
     r.ml=ml; r.abv=abv; r.alc=alc; r.memo=$("mM").value.trim();
     toast("更新しました");
   }else{
-    db.meals.push({ id:uid(), dt:d.toISOString(), type:mealType, name:name, kcal:k, protein:p,
+    db.meals.push({ id:uid(), dt:d.toISOString(), type:mealType, name:name, kcal:k, protein:p, salt:salt,
                     ml:ml, abv:abv, alc:alc, memo:$("mM").value.trim() });
     toast("記録しました");
   }
@@ -894,7 +912,7 @@ function renderRecent(){
   var counts = {};
   db.meals.slice().sort(sortDesc).slice(0,120).forEach(function(m){
     if(!m.name || quick[m.name]) return;
-    if(!counts[m.name]) counts[m.name] = { n:0, kcal:m.kcal, protein:m.protein, type:m.type, ml:m.ml, abv:m.abv };
+    if(!counts[m.name]) counts[m.name] = { n:0, kcal:m.kcal, protein:m.protein, salt:m.salt, type:m.type, ml:m.ml, abv:m.abv };
     counts[m.name].n++;
   });
   var names = Object.keys(counts).sort(function(a,b){ return counts[b].n - counts[a].n; }).slice(0,8);
@@ -910,6 +928,7 @@ function renderRecent(){
       // 別の項目を押したら前の値が残らないよう、毎回入れ替える
       $("mK").value   = c.kcal    == null ? "" : c.kcal;
       $("mP").value   = c.protein == null ? "" : c.protein;
+      $("mS").value   = c.salt    == null ? "" : c.salt;
       $("mMl").value  = c.ml      == null ? "" : c.ml;
       $("mAbv").value = c.abv     == null ? "" : c.abv;
       renderAlcCalc();
@@ -1222,6 +1241,14 @@ function renderSummary(){
   html += statBox("今日の摂取", kcal ? kcal : (tm.length?"—":0), "kcal", sub,
     (s.kcal && kcal>s.kcal) ? "up" : "");
 
+  // 塩分：記録があるか上限を設定しているときだけ出す
+  if(db.meals.some(function(m){ return m.salt; }) || s.saltLimit){
+    var salt = tm.reduce(function(x,m){ return x + (m.salt||0); }, 0);
+    html += statBox("今日の塩分", f1(salt), "g",
+      s.saltLimit ? "上限 "+s.saltLimit+" g" : "食塩相当量",
+      (s.saltLimit && salt > s.saltLimit) ? "up" : "");
+  }
+
   // アルコール：記録があるか上限を設定しているときだけ出す
   var anyAlc = db.meals.some(function(m){ return m.alc; });
   if(anyAlc || s.alcLimit){
@@ -1335,6 +1362,8 @@ function renderHistory(){
     var head = [];
     if(ws.length) head.push(f1(ws[ws.length-1].r.weight)+" kg");
     if(kcal) head.push(kcal+" kcal");
+    var salt = g.items.reduce(function(s,it){ return s + (it.k==="meal" && it.r.salt ? it.r.salt : 0); }, 0);
+    if(salt) head.push("塩 "+f1(salt)+"g");
     if(alc) head.push("酒 "+f1(alc)+"g");
     var slp = sleepByDay()[g.key];
     if(slp) head.push("睡眠 "+f1(slp)+"h");
@@ -1386,6 +1415,7 @@ function mealLi(r){
   var v = [];
   if(r.kcal!=null) v.push("<b>"+r.kcal+"</b> kcal");
   if(r.protein!=null) v.push("P "+r1(r.protein)+"g");
+  if(r.salt!=null) v.push("塩 "+f1(r.salt)+"g");
   if(r.alc!=null) v.push("酒 "+f1(r.alc)+"g");
   return "<li><div class='li-main' data-open='meal' data-id='"+r.id+"'><div class='li-t'>"+fmtTime(r.dt)+"</div>"+
     "<div class='li-b'><span class='tag'>"+esc(r.type||"食事")+"</span>"+esc(r.name)+"</div>"+
@@ -1809,7 +1839,9 @@ function renderBarChart(cv, hintEl, opt){
     hitDays: hit.length,
     recordedDays: recorded,
     zeroDays: recorded - hit.length,   // 記録のある日のうち、0だった日
-    goalDays: goal ? buckets.filter(function(b){ return b.v >= goal; }).length : 0,
+    goalDays: goal ? buckets.filter(function(b){
+                 return opt.moreIsBetter ? b.v >= goal : (b.v > 0 && b.v <= goal);
+               }).length : 0,
     avg: hit.reduce(function(a,b){ return a+b.v; },0)/hit.length
   });
 }
@@ -1826,6 +1858,7 @@ function renderKcalChart(){
     }
   });
   renderProteinChart();
+  renderSaltChart();
   renderStepChart();
   renderSleepChart();
   renderAlcChart();
@@ -1842,6 +1875,21 @@ function renderProteinChart(){
     hint: function(st){
       return "この期間の"+st.hitDays+"日を記録・平均 "+f1(st.avg)+" g/日"
         + (st.goal ? "（目標 "+st.goal+" g・達成 "+st.goalDays+"日）" : "");
+    }
+  });
+}
+
+function renderSaltChart(){
+  var s = db.settings || {};
+  renderBarChart($("saltChart"), $("saltHint"), {
+    valueOf: function(m){ return m.salt || 0; },
+    goal: s.saltLimit,
+    emptyMsg: "塩分の記録がありません",
+    emptyHint: "食事に塩分（食塩相当量）を入力すると、日別の棒グラフが表示されます。",
+    hint: function(st){
+      return "この期間の"+st.hitDays+"日を記録・平均 "+f1(st.avg)+" g/日"
+        + (st.goal ? "（上限 "+st.goal+" g・超えた日 "
+            + Math.max(0, st.hitDays - st.goalDays) + "日）" : "");
     }
   });
 }
@@ -1908,6 +1956,7 @@ function renderSettings(){
   $("sK").value = s.kcal==null ? "" : s.kcal;
   $("sP").value = s.protein==null ? "" : s.protein;
   $("sA").value = s.alcLimit==null ? "" : s.alcLimit;
+  $("sSa").value = s.saltLimit==null ? "" : s.saltLimit;
   $("sSt").value = s.stepGoal==null ? "" : s.stepGoal;
   $("countInfo").textContent = "体組成 "+db.body.length+"件 / 食事 "+db.meals.length+"件 / 生活 "+db.logs.length+"件 / 歩数 "+Object.keys(db.steps).length+"日ぶんを保存中";
   renderVersion();
@@ -2027,6 +2076,7 @@ $("sSave").addEventListener("click", function(){
     kcal: num($("sK").value),
     protein: num($("sP").value),
     alcLimit: num($("sA").value),
+    saltLimit: num($("sSa").value),
     stepGoal: num($("sSt").value)
   };
   save(); renderSummary(); renderAlcCalc(); toast("設定を保存しました");
@@ -2065,28 +2115,28 @@ function buildJson(){
 }
 function buildCsv(){
   var rows = [["種別","日時","体重kg","体脂肪率%","体温℃","SpO2%","脈拍bpm","天気","室温℃","湿度%",
-               "区分","内容","kcal","たんぱく質g","酒量ml","度数%","純アルコールg","便の状態","睡眠時間h","歩数","メモ"]];
+               "区分","内容","kcal","たんぱく質g","塩分g","酒量ml","度数%","純アルコールg","便の状態","睡眠時間h","歩数","メモ"]];
   db.body.slice().sort(sortDesc).forEach(function(r){
     rows.push(["体組成", new Date(r.dt).toLocaleString("ja-JP"), r.weight, r.fat, r.temp, r.spo2, r.pulse,
                r.weather, r.room, r.humid,
-               "", "", "", "", "", "", "", "", "", "", r.memo]);
+               "", "", "", "", "", "", "", "", "", "", "", r.memo]);
   });
   db.meals.slice().sort(sortDesc).forEach(function(r){
     rows.push(["食事", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", "", "", "",
-               r.type, r.name, r.kcal, r.protein, r.ml, r.abv, r.alc, "", "", "", r.memo]);
+               r.type, r.name, r.kcal, r.protein, r.salt, r.ml, r.abv, r.alc, "", "", "", r.memo]);
   });
   var hoursByWake = {};
   sleepSessions().forEach(function(x){ hoursByWake[x.wakeId] = Math.round(x.hours*100)/100; });
   db.logs.slice().sort(sortDesc).forEach(function(r){
     rows.push(["生活", new Date(r.dt).toLocaleString("ja-JP"), "", "", "", "", "", "", "", "",
-               logLabel(r.kind), "", "", "", "", "", "",
+               logLabel(r.kind), "", "", "", "", "", "", "",
                (r.bristol ? r.bristol+" "+BRISTOL[r.bristol] : ""),
                hoursByWake[r.id]==null ? "" : hoursByWake[r.id], "", r.memo]);
   });
   Object.keys(db.steps).sort().reverse().forEach(function(k){
     var p = k.split("-");
     rows.push(["歩数", +p[0]+"/"+ +p[1] +"/"+ +p[2], "", "", "", "", "", "", "", "",
-               "", "", "", "", "", "", "", "", "", db.steps[k], ""]);
+               "", "", "", "", "", "", "", "", "", "", db.steps[k], ""]);
   });
   // 先頭のBOMはExcelでの文字化け防止
   return { name:"diet-"+stamp()+".csv",
