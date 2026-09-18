@@ -529,7 +529,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.12.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.13.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -543,10 +543,29 @@ var QUICK_ITEMS = [
   ["ナッツ","🥜",null,158,4.5,0],  ["バナナ","🍌",null,86,1.1,0],
   ["味噌汁","🥣",null,40,3.0,1.2], ["玄米0.5合","🍚",null,260,5.0,0]
 ];
-// お酒のプリセット [表示名, 量ml, 度数%]
-var ALC_PRESETS = [
-  ["ビール350ml", 350, 5], ["ビール500ml", 500, 5], ["ワイン120ml", 120, 12]
-];
+// お酒のプリセット。量(ml)あたりの成分を持ち、量と度数から記録内容を計算する
+var DRINK_PRESETS = {
+  beer:     { label:"ビール",   kcalPerMl:0.40, proteinPerMl:0.003, defaultAbv:5 },
+  wine_red: { label:"赤ワイン", kcalPerMl:0.68, proteinPerMl:0.002, defaultAbv:12 },
+  wine_wht: { label:"白ワイン", kcalPerMl:0.75, proteinPerMl:0.001, defaultAbv:12 }
+};
+// 並べるボタン [プリセットのキー, 量ml]
+var DRINK_BUTTONS = [["beer",350], ["beer",500], ["wine_red",120], ["wine_wht",120]];
+// プリセットで作られる名前（ビール350ml など）。旧版の「ワイン120ml」も含める
+var DRINK_NAME = /^(ビール|赤ワイン|白ワイン|ワイン)(\d+)ml$/;
+
+function calcDrink(key, ml, abv){
+  var p = DRINK_PRESETS[key];
+  if(abv == null) abv = p.defaultAbv;
+  return {
+    name: p.label + ml + "ml",
+    ml: ml, abv: abv,
+    kcal: Math.round(ml * p.kcalPerMl),
+    protein: Math.round(ml * p.proteinPerMl * 10) / 10,
+    salt: 0,
+    alc: Math.round(ml * abv / 100 * 0.8 * 10) / 10
+  };
+}
 // 天気 [保存する値, アイコン]
 var WEATHERS = [["快晴","☀️"],["晴れ","🌤"],["くもり","☁️"],["雨","🌧"],["雪","❄️"],["雷雨","⛈"]];
 function weatherIcon(w){
@@ -849,16 +868,39 @@ function renderTypeChips(){
     b.onclick = function(){ mealType = b.dataset.t; renderTypeChips(); };
   });
 }
+var currentDrink = null;   // いま入力中のお酒のプリセット（量を変えたら追従させる）
+
+function applyDrink(key, ml, abv){
+  var d = calcDrink(key, ml, abv);
+  currentDrink = key;
+  $("mN").value = d.name;
+  $("mMl").value = d.ml;  $("mAbv").value = d.abv;
+  $("mK").value = d.kcal; $("mP").value = d.protein; $("mS").value = d.salt;
+  renderAlcCalc();
+}
+// 量や度数を書き換えたら、名前・カロリー・たんぱく質も合わせる
+function recalcDrink(){
+  if(!currentDrink) return;
+  var ml = num($("mMl").value);
+  if(ml == null || ml <= 0) return;
+  var d = calcDrink(currentDrink, ml, num($("mAbv").value));
+  $("mN").value = d.name; $("mK").value = d.kcal; $("mP").value = d.protein;
+}
+// 既存の記録の名前からプリセットを割り出す（編集時にも量の変更に追従させるため）
+function drinkKeyOf(name){
+  var m = DRINK_NAME.exec(name || "");
+  if(!m) return null;
+  return m[1] === "ビール" ? "beer" : m[1] === "白ワイン" ? "wine_wht" : "wine_red";
+}
+
 function renderAlcPresets(){
-  $("alcPresets").innerHTML = ALC_PRESETS.map(function(a, i){
-    return '<button type="button" class="chip" data-i="'+i+'">'+esc(a[0])+"</button>";
+  $("alcPresets").innerHTML = DRINK_BUTTONS.map(function(d, i){
+    return '<button type="button" class="chip" data-i="'+i+'">'+esc(DRINK_PRESETS[d[0]].label + d[1] + "ml")+"</button>";
   }).join("");
   Array.prototype.forEach.call($("alcPresets").children, function(b){
     b.onclick = function(){
-      var a = ALC_PRESETS[+b.dataset.i];
-      $("mMl").value = a[1]; $("mAbv").value = a[2];
-      if(!$("mN").value.trim()) $("mN").value = a[0];
-      renderAlcCalc();
+      var d = DRINK_BUTTONS[+b.dataset.i];
+      applyDrink(d[0], d[1], null);
     };
   });
 }
@@ -871,8 +913,10 @@ function renderAlcCalc(){
   el.innerHTML = "純アルコール <b>"+f1(g)+" g</b>"
     + (s.alcLimit ? "（1日の上限 "+s.alcLimit+" g）" : "");
 }
-$("mMl").addEventListener("input", renderAlcCalc);
-$("mAbv").addEventListener("input", renderAlcCalc);
+$("mMl").addEventListener("input", function(){ recalcDrink(); renderAlcCalc(); });
+$("mAbv").addEventListener("input", function(){ recalcDrink(); renderAlcCalc(); });
+// 内容を手で書き換えたら、プリセットの自動計算はやめる
+$("mN").addEventListener("input", function(){ currentDrink = null; });
 
 function guessType(){
   var d = sharedDate() || new Date();
@@ -882,6 +926,7 @@ function guessType(){
 function resetMealForm(){
   if(editMealId) setSharedDate(new Date(), false);
   editMealId = null;
+  currentDrink = null;
   $("mN").value=""; $("mK").value=""; $("mP").value=""; $("mS").value=""; $("mM").value="";
   $("mMl").value=""; $("mAbv").value=""; renderAlcCalc();
   mealType = guessType(); renderTypeChips();
@@ -896,6 +941,7 @@ function editMeal(id){
   editMealId = id;
   setSharedDate(new Date(r.dt), true);
   $("mN").value = r.name || "";
+  currentDrink = drinkKeyOf(r.name);
   $("mK").value = r.kcal==null ? "" : r.kcal;
   $("mP").value = r.protein==null ? "" : r.protein;
   $("mS").value = r.salt==null ? "" : r.salt;
@@ -949,10 +995,9 @@ function renderRecent(){
   // 同じカード内にボタンがあって重複するので出さない
   var quick = {};
   QUICK_ITEMS.forEach(function(q){ quick[q[0]] = 1; });
-  ALC_PRESETS.forEach(function(a){ quick[a[0]] = 1; });
   var counts = {};
   db.meals.slice().sort(sortDesc).slice(0,120).forEach(function(m){
-    if(!m.name || quick[m.name]) return;
+    if(!m.name || quick[m.name] || DRINK_NAME.test(m.name)) return;
     if(!counts[m.name]) counts[m.name] = { n:0, kcal:m.kcal, protein:m.protein, salt:m.salt, type:m.type, ml:m.ml, abv:m.abv };
     counts[m.name].n++;
   });
@@ -970,6 +1015,7 @@ function renderRecent(){
       $("mK").value   = c.kcal    == null ? "" : c.kcal;
       $("mP").value   = c.protein == null ? "" : c.protein;
       $("mS").value   = c.salt    == null ? "" : c.salt;
+      currentDrink = null;
       $("mMl").value  = c.ml      == null ? "" : c.ml;
       $("mAbv").value = c.abv     == null ? "" : c.abv;
       renderAlcCalc();
