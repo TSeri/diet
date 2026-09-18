@@ -49,6 +49,15 @@ body.rec .dtbar{display:flex}
 .dtbar input{flex:1; min-width:0; padding:7px 9px; font-size:15px}
 .dtbar .btn{width:auto; flex:0 0 auto; padding:8px 10px; font-size:12px}
 .dtbar.pinned input{border-color:var(--accent)}
+/* 記録タブ内の入力カードの切り替え */
+.subtabs{display:none; margin-top:8px; background:var(--bg); border:1px solid var(--line);
+  border-radius:10px; padding:3px; gap:3px}
+body.rec .subtabs{display:flex}
+.subtabs button{flex:1; border:none; background:transparent; color:var(--sub);
+  font-size:14px; font-weight:700; padding:8px 2px; border-radius:8px; cursor:pointer}
+.subtabs button.on{background:var(--card); color:var(--accent); box-shadow:var(--shadow)}
+.entry{display:none}
+.entry.on{display:block}
 .dtbar.pinned .btn{background:var(--accent); color:#fff; border-color:var(--accent)}
 header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em}
 header .today{font-size:12px;color:var(--sub);margin-left:auto}
@@ -184,18 +193,19 @@ nav button.on{color:var(--accent)}
     <input type="datetime-local" id="shDt">
     <button type="button" class="btn sec" id="shNow">現在時刻</button>
   </div>
+  <div class="subtabs" id="subTabs">
+    <button type="button" data-sub="log">生活</button>
+    <button type="button" data-sub="meal">食事</button>
+    <button type="button" data-sub="body">体組成</button>
+    <button type="button" data-sub="steps">歩数</button>
+  </div>
 </header>
 
 <main>
 
 <!-- ========== 記録 ========== -->
 <section class="view active" id="view-rec">
-  <div class="card">
-    <h2>サマリー</h2>
-    <div class="stats" id="summary"></div>
-  </div>
-
-  <div class="card">
+  <div class="card entry" id="entry-log">
     <h2>生活記録</h2>
     <div id="logEditBar"></div>
     <div class="quick" id="quickLog"></div>
@@ -221,7 +231,7 @@ nav button.on{color:var(--accent)}
     </details>
   </div>
 
-  <div class="card">
+  <div class="card entry" id="entry-meal">
     <h2>食事</h2>
     <div class="quick three" id="quickDrink"></div>
     <p class="hint" style="margin:8px 0 12px">タップすると上の日時ですぐ記録します。</p>
@@ -275,7 +285,7 @@ nav button.on{color:var(--accent)}
     </div>
   </div>
 
-  <div class="card">
+  <div class="card entry" id="entry-body">
     <h2>体組成・バイタル・環境</h2>
     <div id="bodyEditBar"></div>
     <div class="row">
@@ -326,7 +336,7 @@ nav button.on{color:var(--accent)}
     </div>
   </div>
 
-  <div class="card">
+  <div class="card entry" id="entry-steps">
     <h2>歩数</h2>
     <div class="field">
       <label for="stDate">日付</label>
@@ -347,6 +357,12 @@ nav button.on{color:var(--accent)}
     <p class="hint" style="margin-top:8px">iPhoneの「ショートカット」でヘルスケアの歩数をコピーしてから「貼り付け」を押すと取り込めます。うまくいかないときは歩数欄を長押しして「ペースト」でも大丈夫です（カンマや「歩」が付いていても構いません）。同じ日付に保存すると上書きされ、空のまま保存するとその日の記録を消します。</p>
 
   </div>
+
+  <div class="card" id="summaryCard">
+    <h2>サマリー</h2>
+    <div class="stats" id="summary"></div>
+  </div>
+
 </section>
 
 <!-- ========== グラフ ========== -->
@@ -513,7 +529,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.11.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.12.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -693,6 +709,31 @@ document.addEventListener("visibilitychange", function(){
   if(!document.hidden) tickSharedDate();
 });
 
+/* ---------- 記録タブ内の切り替え（生活／食事／体組成／歩数） ---------- */
+var SUBS = ["log","meal","body","steps"];
+var currentSub = "log";
+function showSub(k){
+  if(SUBS.indexOf(k) < 0) k = "log";
+  currentSub = k;
+  SUBS.forEach(function(x){ $("entry-"+x).classList.toggle("on", x===k); });
+  Array.prototype.forEach.call(document.querySelectorAll("#subTabs button"), function(b){
+    b.classList.toggle("on", b.dataset.sub===k);
+  });
+  try{ localStorage.setItem(KEY+":sub", k); }catch(e){}
+}
+Array.prototype.forEach.call(document.querySelectorAll("#subTabs button"), function(b){
+  b.addEventListener("click", function(){
+    showSub(b.dataset.sub);
+    window.scrollTo(0,0);
+    if(!$("view-rec").classList.contains("active")) show("rec");
+  });
+});
+(function(){
+  var k = null;
+  try{ k = localStorage.getItem(KEY+":sub"); }catch(e){}
+  showSub(k || "log");
+})();
+
 /* ---------- 編集の共通処理 ---------- */
 // 編集モードに入ったカードを画面上部に出す。
 // サマリーが長いと、記録タブを開いただけでは入力欄が画面外に残るため。
@@ -738,7 +779,7 @@ function editBody(id){
   $("bCancel").style.display = "";
   $("bodyEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelBody">やめる</button></div>';
   $("cancelBody").onclick = cancelBodyEdit;
-  show("rec");
+  show("rec"); showSub("body");
   scrollToCard($("bodyEditBar"));
 }
 function cancelBodyEdit(){ resetBodyForm(); toast("編集をやめました"); }
@@ -868,7 +909,7 @@ function editMeal(id){
   $("mCancel").style.display = "";
   $("mealEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelMeal">やめる</button></div>';
   $("cancelMeal").onclick = cancelMealEdit;
-  show("rec");
+  show("rec"); showSub("meal");
   scrollToCard($("mealEditBar"));
 }
 function cancelMealEdit(){ resetMealForm(); toast("編集をやめました"); }
@@ -1002,7 +1043,7 @@ function editLog(id){
   $("logEditBar").innerHTML = '<div class="editbar"><span>編集中：'+esc(fmtDay(dayKey(r.dt)))+" "+fmtTime(r.dt)+'</span><button class="chip" id="cancelLog">やめる</button></div>';
   $("cancelLog").onclick = cancelLogEdit;
   $("logDetail").open = true;
-  show("rec");
+  show("rec"); showSub("log");
   scrollToCard($("logEditBar"));
 }
 function cancelLogEdit(){ resetLogForm(); toast("編集をやめました"); }
