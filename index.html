@@ -234,7 +234,7 @@ nav button.on{color:var(--accent)}
   <div class="card entry" id="entry-meal">
     <h2>食事</h2>
     <div class="quick three" id="quickDrink"></div>
-    <p class="hint" style="margin:8px 0 12px">タップすると上の日時ですぐ記録します。</p>
+    <p class="hint" id="quickDrinkHint" style="margin:8px 0 12px">タップすると上の日時ですぐ記録します。</p>
     <div id="mealEditBar"></div>
     <div class="field">
       <label>区分</label>
@@ -260,6 +260,10 @@ nav button.on{color:var(--accent)}
         <input type="number" id="mS" inputmode="decimal" step="0.1" min="0" max="100" placeholder="1.5">
       </div>
     </div>
+    <div class="row">
+      <button class="btn" id="mSave">食事を記録</button>
+      <button class="btn sec" id="mCancel" style="display:none">キャンセル</button>
+    </div>
     <div class="field">
       <label>アルコール（飲んだときだけ・タップで入力）</label>
       <div class="chips" id="alcPresets"></div>
@@ -278,10 +282,6 @@ nav button.on{color:var(--accent)}
     <div class="field">
       <label for="mM">メモ（任意）</label>
       <input type="text" id="mM" placeholder="外食 / 作り置き など">
-    </div>
-    <div class="row">
-      <button class="btn" id="mSave">食事を記録</button>
-      <button class="btn sec" id="mCancel" style="display:none">キャンセル</button>
     </div>
   </div>
 
@@ -466,6 +466,59 @@ nav button.on{color:var(--accent)}
   </div>
 
   <div class="card">
+    <h2>食事のボタン</h2>
+    <p class="hint" style="margin-bottom:10px">食事の画面でタップするだけで記録できるボタンです。タップして内容を変更できます。</p>
+    <ul class="list" id="quickList"></ul>
+    <button class="btn sec" id="qNew" style="margin-top:10px">＋ ボタンを追加</button>
+
+    <div id="quickEditor" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+      <div class="editbar" id="qEditBar"></div>
+      <div class="row">
+        <div class="field" style="flex:0 0 76px">
+          <label for="qIcon">アイコン</label>
+          <input type="text" id="qIcon" maxlength="4" placeholder="🍙">
+        </div>
+        <div class="field">
+          <label for="qName">名前</label>
+          <input type="text" id="qName" placeholder="おにぎり">
+        </div>
+      </div>
+      <div class="field">
+        <label for="qType">区分</label>
+        <select id="qType">
+          <option value="">時刻から自動</option>
+          <option value="朝食">朝食</option>
+          <option value="昼食">昼食</option>
+          <option value="夕食">夕食</option>
+          <option value="間食">間食</option>
+          <option value="飲み物">飲み物</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="qKcal">カロリー (kcal)</label>
+          <input type="number" id="qKcal" inputmode="numeric" step="1" min="0" max="20000" placeholder="180">
+        </div>
+        <div class="field">
+          <label for="qProtein">たんぱく質 (g)</label>
+          <input type="number" id="qProtein" inputmode="decimal" step="0.1" min="0" max="1000" placeholder="3.5">
+        </div>
+        <div class="field">
+          <label for="qSalt">塩分 (g)</label>
+          <input type="number" id="qSalt" inputmode="decimal" step="0.1" min="0" max="100" placeholder="0.5">
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" id="qSave">保存</button>
+        <button class="btn sec" id="qCancel">やめる</button>
+      </div>
+      <button class="btn danger" id="qDelete" style="margin-top:8px;display:none">このボタンを削除</button>
+    </div>
+
+    <button class="btn sec" id="qReset" style="margin-top:14px">初期設定に戻す</button>
+  </div>
+
+  <div class="card">
     <h2>データ管理（バックアップ）</h2>
     <p class="hint" style="margin-bottom:10px">データはこの端末のブラウザ内だけに保存されます。機種変更やブラウザのデータ削除に備えて、ときどき書き出してください。</p>
     <p class="hint" id="backupInfo" style="margin-bottom:12px"></p>
@@ -529,20 +582,25 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.13.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.14.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
-// ワンタップで記録するもの [名前, アイコン, 区分, kcal, たんぱく質g, 塩分g]
-// 区分が null のものは、日時の時刻から朝食／昼食／夕食／間食を自動で決める
-// 食べ物のkcal・たんぱく質は自己記録（成分表ベース）の単品の値に揃えている
-// 塩分は一般的な目安。実際と違えば履歴から直せる
-var QUICK_ITEMS = [
-  ["麦茶","🫖","飲み物",0,null,0], ["緑茶","🍵","飲み物",0,null,0], ["コーヒー","☕","飲み物",0,null,0],
-  ["水","🚰","飲み物",0,null,0],   ["炭酸水","🥤","飲み物",0,null,0],
-  ["ナッツ","🥜",null,158,4.5,0],  ["バナナ","🍌",null,86,1.1,0],
-  ["味噌汁","🥣",null,40,3.0,1.2], ["玄米0.5合","🍚",null,260,5.0,0]
-];
+// ワンタップで記録するもの。設定から追加・変更・削除できるのでユーザーデータとして持つ
+// type が null のものは、日時の時刻から朝食／昼食／夕食／間食を自動で決める
+function defaultQuickItems(){
+  return [
+    { id:"q-mugicha", name:"麦茶",      icon:"🫖", type:"飲み物", kcal:0,   protein:null, salt:0 },
+    { id:"q-ryokucha",name:"緑茶",      icon:"🍵", type:"飲み物", kcal:0,   protein:null, salt:0 },
+    { id:"q-coffee",  name:"コーヒー",  icon:"☕", type:"飲み物", kcal:0,   protein:null, salt:0 },
+    { id:"q-water",   name:"水",        icon:"🚰", type:"飲み物", kcal:0,   protein:null, salt:0 },
+    { id:"q-soda",    name:"炭酸水",    icon:"🥤", type:"飲み物", kcal:0,   protein:null, salt:0 },
+    { id:"q-nuts",    name:"ナッツ",    icon:"🥜", type:null,     kcal:158, protein:4.5,  salt:0 },
+    { id:"q-banana",  name:"バナナ",    icon:"🍌", type:null,     kcal:86,  protein:1.1,  salt:0 },
+    { id:"q-miso",    name:"味噌汁",    icon:"🥣", type:null,     kcal:40,  protein:3.0,  salt:1.2 },
+    { id:"q-genmai",  name:"玄米0.5合", icon:"🍚", type:null,     kcal:260, protein:5.0,  salt:0 }
+  ];
+}
 // お酒のプリセット。量(ml)あたりの成分を持ち、量と度数から記録内容を計算する
 var DRINK_PRESETS = {
   beer:     { label:"ビール",   kcalPerMl:0.40, proteinPerMl:0.003, defaultAbv:5 },
@@ -597,7 +655,7 @@ function pureAlcohol(ml, abv){
 var db = load();
 
 function blank(){
-  return { body: [], meals: [], logs: [], steps: {},
+  return { body: [], meals: [], logs: [], steps: {}, quick: defaultQuickItems(),
            settings: { height:null, goal:null, kcal:null, protein:null, alcLimit:null, saltLimit:null, stepGoal:null }, v:1 };
 }
 function load(){
@@ -609,6 +667,8 @@ function load(){
     d.body = Array.isArray(d.body) ? d.body : [];
     d.meals = Array.isArray(d.meals) ? d.meals : [];
     d.logs  = Array.isArray(d.logs)  ? d.logs  : [];   // 旧バックアップには無い
+    // ワンタップのボタンは設定で編集できる。空にしたままにもできるので長さは見ない
+    d.quick = Array.isArray(d.quick) ? d.quick : defaultQuickItems();
     // 歩数は「日付→歩数」の対応表。同じ日を何度取り込んでも二重にならない
     d.steps = (d.steps && typeof d.steps === "object" && !Array.isArray(d.steps)) ? d.steps : {};
     d.settings = d.settings || {};
@@ -843,19 +903,22 @@ var editMealId = null;
 var mealType = MEAL_TYPES[0];
 
 function renderQuickDrinks(){
-  $("quickDrink").innerHTML = QUICK_ITEMS.map(function(q, i){
-    return '<button type="button" data-i="'+i+'" data-n="'+esc(q[0])+'"><span class="ic">'+q[1]+"</span>"+esc(q[0])+"</button>";
+  var items = db.quick || [];
+  $("quickDrink").innerHTML = items.map(function(q, i){
+    return '<button type="button" data-i="'+i+'" data-n="'+esc(q.name)+'"><span class="ic">'+esc(q.icon||"・")+"</span>"+esc(q.name)+"</button>";
   }).join("");
+  $("quickDrinkHint").style.display = items.length ? "" : "none";
   Array.prototype.forEach.call($("quickDrink").children, function(b){
     b.onclick = function(){
       var d = sharedDate();
       if(!d){ alert("上の日時を入力してください。"); return; }
-      var q = QUICK_ITEMS[+b.dataset.i];
-      db.meals.push({ id:uid(), dt:d.toISOString(), type:q[2] || guessType(), name:q[0],
-                      kcal:q[3], protein:q[4], salt:q[5],
+      var q = (db.quick || [])[+b.dataset.i];
+      if(!q) return;
+      db.meals.push({ id:uid(), dt:d.toISOString(), type:q.type || guessType(), name:q.name,
+                      kcal:q.kcal, protein:q.protein, salt:q.salt,
                       ml:null, abv:null, alc:null, memo:"" });
       save(); renderSummary(); renderRecent();
-      toast(q[0]+"を記録しました");
+      toast(q.name+"を記録しました");
     };
   });
 }
@@ -994,7 +1057,7 @@ function renderRecent(){
   // ワンタップボタンとアルコールのプリセットにあるものは、
   // 同じカード内にボタンがあって重複するので出さない
   var quick = {};
-  QUICK_ITEMS.forEach(function(q){ quick[q[0]] = 1; });
+  (db.quick || []).forEach(function(q){ quick[q.name] = 1; });
   var counts = {};
   db.meals.slice().sort(sortDesc).slice(0,120).forEach(function(m){
     if(!m.name || quick[m.name] || DRINK_NAME.test(m.name)) return;
@@ -2048,6 +2111,7 @@ function renderSettings(){
   $("countInfo").textContent = "体組成 "+db.body.length+"件 / 食事 "+db.meals.length+"件 / 生活 "+db.logs.length+"件 / 歩数 "+Object.keys(db.steps).length+"日ぶんを保存中";
   renderVersion();
   renderBackupInfo();
+  renderQuickList();
 }
 function renderVersion(){
   var el = $("verInfo");
@@ -2169,6 +2233,86 @@ $("sSave").addEventListener("click", function(){
   save(); renderSummary(); renderAlcCalc(); toast("設定を保存しました");
 });
 
+/* ---------- 食事のボタンの編集 ---------- */
+var qEditId = null;   // null なら新規追加
+
+function fmtQuickInfo(q){
+  var parts = [q.type || "時刻から自動"];
+  parts.push((q.kcal == null ? "—" : q.kcal) + " kcal");
+  if(q.protein != null) parts.push("P " + f1(q.protein) + "g");
+  if(q.salt != null) parts.push("塩 " + f1(q.salt) + "g");
+  return parts.join(" ・ ");
+}
+function renderQuickList(){
+  var items = db.quick || [];
+  if(!items.length){
+    $("quickList").innerHTML = '<li><div class="li-main" style="cursor:default"><div class="li-n">ボタンがありません。「＋ ボタンを追加」か「初期設定に戻す」で作れます。</div></div></li>';
+    return;
+  }
+  $("quickList").innerHTML = items.map(function(q){
+    return "<li><div class='li-main' data-q='"+esc(q.id)+"'>"+
+      "<div class='li-b'>"+esc(q.icon||"・")+" "+esc(q.name)+"</div>"+
+      "<div class='li-n'>"+esc(fmtQuickInfo(q))+"</div></div></li>";
+  }).join("");
+  Array.prototype.forEach.call($("quickList").querySelectorAll("[data-q]"), function(el){
+    el.onclick = function(){ openQuickEditor(el.dataset.q); };
+  });
+}
+function openQuickEditor(id){
+  var q = (db.quick || []).filter(function(x){ return x.id === id; })[0];
+  qEditId = q ? id : null;
+  $("quickEditor").style.display = "";
+  $("qDelete").style.display = q ? "" : "none";
+  $("qEditBar").textContent = q ? "編集中：" + (q.icon||"") + " " + q.name : "新しいボタン";
+  $("qIcon").value    = q ? (q.icon || "") : "";
+  $("qName").value    = q ? q.name : "";
+  $("qType").value    = q ? (q.type || "") : "";
+  $("qKcal").value    = q && q.kcal    != null ? q.kcal    : "";
+  $("qProtein").value = q && q.protein != null ? q.protein : "";
+  $("qSalt").value    = q && q.salt    != null ? q.salt    : "";
+  $("quickEditor").scrollIntoView({block:"nearest"});
+}
+function closeQuickEditor(){
+  qEditId = null;
+  $("quickEditor").style.display = "none";
+}
+$("qNew").addEventListener("click", function(){ openQuickEditor(null); });
+$("qCancel").addEventListener("click", closeQuickEditor);
+$("qSave").addEventListener("click", function(){
+  var name = $("qName").value.trim();
+  if(!name){ alert("名前を入力してください。"); return; }
+  var k = num($("qKcal").value), pr = num($("qProtein").value), sa = num($("qSalt").value);
+  if(k  !== null && (k  < 0 || k  > 20000)){ alert("カロリーは 0〜20000 の範囲で入力してください。"); return; }
+  if(pr !== null && (pr < 0 || pr > 1000)) { alert("たんぱく質は 0〜1000 g の範囲で入力してください。"); return; }
+  if(sa !== null && (sa < 0 || sa > 100))  { alert("塩分は 0〜100 g の範囲で入力してください。"); return; }
+
+  var item = { id: qEditId || ("q-" + uid()), name: name,
+               icon: $("qIcon").value.trim(), type: $("qType").value || null,
+               kcal: k, protein: pr, salt: sa };
+  if(qEditId){
+    db.quick = db.quick.map(function(x){ return x.id === qEditId ? item : x; });
+    toast("更新しました");
+  }else{
+    db.quick.push(item);
+    toast("追加しました");
+  }
+  save(); closeQuickEditor(); renderQuickList(); renderQuickDrinks(); renderRecent();
+});
+$("qDelete").addEventListener("click", function(){
+  if(!qEditId) return;
+  var q = db.quick.filter(function(x){ return x.id === qEditId; })[0];
+  if(!confirm("「"+(q ? q.name : "")+"」のボタンを削除します。よろしいですか？\n（これまでの記録は消えません）")) return;
+  db.quick = db.quick.filter(function(x){ return x.id !== qEditId; });
+  save(); closeQuickEditor(); renderQuickList(); renderQuickDrinks(); renderRecent();
+  toast("削除しました");
+});
+$("qReset").addEventListener("click", function(){
+  if(!confirm("食事のボタンを初期設定に戻します。追加・変更した内容は失われます。よろしいですか？\n（これまでの記録は消えません）")) return;
+  db.quick = defaultQuickItems();
+  save(); closeQuickEditor(); renderQuickList(); renderQuickDrinks(); renderRecent();
+  toast("初期設定に戻しました");
+});
+
 /* ---------- 書き出し / 読み込み ---------- */
 function download(filename, text, mime){
   var blob = new Blob([text], {type: mime || "text/plain;charset=utf-8"});
@@ -2194,7 +2338,7 @@ function buildJson(){
   var payload = {
     exportedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
-    body: db.body, meals: db.meals, logs: db.logs, steps: db.steps, settings: db.settings, v: 1
+    body: db.body, meals: db.meals, logs: db.logs, steps: db.steps, quick: db.quick, settings: db.settings, v: 1
   };
   return { name:"diet-backup-"+stamp()+".json",
            text:JSON.stringify(payload, null, 2),
@@ -2339,7 +2483,9 @@ $("impReplace").addEventListener("click", function(){
     if(!confirm("読み込むバックアップ\n\n" + backupSummary(d)
       + "\n\n現在のデータ（体組成 " + db.body.length + "件 / 食事 " + db.meals.length
       + "件 / 生活 " + db.logs.length + "件）をすべて置き換えます。よろしいですか？")) return;
-    db = { body:d.body, meals:d.meals, logs:d.logs||[], steps:d.steps||{}, settings:d.settings||{}, v:1 };
+    db = { body:d.body, meals:d.meals, logs:d.logs||[], steps:d.steps||{},
+           quick: Array.isArray(d.quick) ? d.quick : defaultQuickItems(),
+           settings:d.settings||{}, v:1 };
     save(); renderAll(); showImportInfo(d, "置き換え完了"); toast("読み込みました");
   });
 });
