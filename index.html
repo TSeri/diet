@@ -141,6 +141,7 @@ canvas{width:100%;height:230px;display:block;touch-action:pan-y}
 .li-v{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:11px;color:var(--sub);line-height:1.35}
 .li-v b{font-size:14px;color:var(--fg)}
 .li-acts{display:flex;flex-direction:column;gap:4px}
+.iconbtn:disabled{opacity:.25}
 .iconbtn{
   border:1px solid var(--line);background:var(--bg);border-radius:8px;
   width:28px;height:26px;font-size:12px;cursor:pointer;display:grid;place-items:center;color:var(--sub)
@@ -582,7 +583,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.14.1";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.14.2";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -2271,15 +2272,33 @@ function renderQuickList(){
     $("quickList").innerHTML = '<li><div class="li-main" style="cursor:default"><div class="li-n">ボタンがありません。「＋ ボタンを追加」か「初期設定に戻す」で作れます。</div></div></li>';
     return;
   }
-  $("quickList").innerHTML = items.map(function(q){
+  $("quickList").innerHTML = items.map(function(q, i){
     return "<li><div class='li-main' data-q='"+esc(q.id)+"'>"+
       "<div class='li-b'>"+esc(q.icon||"・")+" "+esc(q.name)+"</div>"+
-      "<div class='li-n'>"+esc(fmtQuickInfo(q))+"</div></div></li>";
+      "<div class='li-n'>"+esc(fmtQuickInfo(q))+"</div></div>"+
+      "<div class='li-acts'>"+
+        "<button class='iconbtn' data-move='-1' data-id='"+esc(q.id)+"' aria-label='上へ'"+(i===0?" disabled":"")+">▲</button>"+
+        "<button class='iconbtn' data-move='1' data-id='"+esc(q.id)+"' aria-label='下へ'"+(i===items.length-1?" disabled":"")+">▼</button>"+
+      "</div></li>";
   }).join("");
   Array.prototype.forEach.call($("quickList").querySelectorAll("[data-q]"), function(el){
     el.onclick = function(){ openQuickEditor(el.dataset.q); };
   });
+  Array.prototype.forEach.call($("quickList").querySelectorAll("[data-move]"), function(b){
+    b.onclick = function(){ moveQuick(b.dataset.id, +b.dataset.move); };
+  });
 }
+// 並び順がそのまま食事画面での表示順になる
+function moveQuick(id, dir){
+  var items = db.quick || [];
+  var i = -1;
+  items.forEach(function(q, n){ if(q.id === id) i = n; });
+  var j = i + dir;
+  if(i < 0 || j < 0 || j >= items.length) return;
+  var tmp = items[i]; items[i] = items[j]; items[j] = tmp;
+  save(); renderQuickList(); renderQuickDrinks();
+}
+
 function openQuickEditor(id){
   var q = (db.quick || []).filter(function(x){ return x.id === id; })[0];
   qEditId = q ? id : null;
