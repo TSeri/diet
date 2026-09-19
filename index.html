@@ -176,6 +176,9 @@ nav button.on{color:var(--accent)}
 }
 .toast.show{opacity:.95}
 .hint{font-size:12px;color:var(--sub);margin:6px 0 0}
+.linkbtn{background:none;border:none;color:var(--accent);font-size:12px;font-weight:700;
+  padding:2px 4px;cursor:pointer;text-decoration:underline}
+.chip.del{border-color:var(--danger);color:var(--danger)}
 .editbar{background:var(--accent-soft);color:var(--accent);border-radius:10px;padding:7px 11px;font-size:12px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 @media(min-width:600px){
   .stats{grid-template-columns:repeat(6,1fr)}
@@ -246,8 +249,13 @@ nav button.on{color:var(--accent)}
       <label for="mN">内容</label>
       <input type="text" id="mN" placeholder="鶏むね肉サラダ、ごはん150g">
     </div>
-    <p class="hint" id="recentHint" style="display:none;margin:-6px 0 4px">よく使う内容（タップで入力）</p>
+    <p class="hint" id="recentHint" style="display:none;margin:-6px 0 4px">
+      <span id="recentLabel">よく使う内容（タップで入力）</span>
+      <button type="button" class="linkbtn" id="recentEdit">編集</button>
+    </p>
     <div class="chips" id="recentChips" style="margin-bottom:10px"></div>
+    <p class="hint" id="hiddenHint" style="display:none;margin:-4px 0 4px">隠した項目（タップで戻す）</p>
+    <div class="chips" id="hiddenChips" style="margin-bottom:10px"></div>
     <div class="row">
       <div class="field">
         <label for="mK">カロリー (kcal)</label>
@@ -583,7 +591,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.14.3";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.15.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -656,7 +664,7 @@ function pureAlcohol(ml, abv){
 var db = load();
 
 function blank(){
-  return { body: [], meals: [], logs: [], steps: {}, quick: defaultQuickItems(),
+  return { body: [], meals: [], logs: [], steps: {}, quick: defaultQuickItems(), hiddenRecent: [],
            settings: { height:null, goal:null, kcal:null, protein:null, alcLimit:null, saltLimit:null, stepGoal:null }, v:1 };
 }
 function load(){
@@ -670,6 +678,8 @@ function load(){
     d.logs  = Array.isArray(d.logs)  ? d.logs  : [];   // 旧バックアップには無い
     // ワンタップのボタンは設定で編集できる。空にしたままにもできるので長さは見ない
     d.quick = Array.isArray(d.quick) ? d.quick : defaultQuickItems();
+    // 「よく使う内容」から手動で隠した内容名
+    d.hiddenRecent = Array.isArray(d.hiddenRecent) ? d.hiddenRecent : [];
     // 歩数は「日付→歩数」の対応表。同じ日を何度取り込んでも二重にならない
     d.steps = (d.steps && typeof d.steps === "object" && !Array.isArray(d.steps)) ? d.steps : {};
     d.settings = d.settings || {};
@@ -988,6 +998,7 @@ function guessType(){
   return h<10 ? "朝食" : h<15 ? "昼食" : h<21 ? "夕食" : "間食";
 }
 function resetMealForm(){
+  recentEditMode = false;
   if(editMealId) setSharedDate(new Date(), false);
   editMealId = null;
   currentDrink = null;
@@ -1054,6 +1065,11 @@ $("mSave").addEventListener("click", function(){
 });
 
 /* よく使う内容（直近の食事名 上位8件） */
+var recentEditMode = false;   // 編集中はタップで削除になる
+$("recentEdit").addEventListener("click", function(){
+  recentEditMode = !recentEditMode;
+  renderRecent();
+});
 function renderRecent(){
   // ワンタップボタンとアルコールのプリセットにあるものは、
   // 同じカード内にボタンがあって重複するので出さない
@@ -1065,15 +1081,45 @@ function renderRecent(){
     if(!counts[m.name]) counts[m.name] = { n:0, kcal:m.kcal, protein:m.protein, salt:m.salt, type:m.type, ml:m.ml, abv:m.abv };
     counts[m.name].n++;
   });
-  var names = Object.keys(counts).sort(function(a,b){ return counts[b].n - counts[a].n; }).slice(0,8);
+  // 手動で隠したものは出さない
+  var hidden = db.hiddenRecent || [];
+  var hiddenMap = {};
+  hidden.forEach(function(n){ hiddenMap[n] = 1; });
+
+  var names = Object.keys(counts)
+    .filter(function(n){ return !hiddenMap[n]; })
+    .sort(function(a,b){ return counts[b].n - counts[a].n; }).slice(0,8);
+
   var box = $("recentChips");
-  $("recentHint").style.display = names.length ? "" : "none";
-  box.innerHTML = names.map(function(n){
+  $("recentHint").style.display = (names.length || hidden.length) ? "" : "none";
+  $("recentLabel").textContent = recentEditMode
+    ? "よく使う内容（タップで削除）" : "よく使う内容（タップで入力）";
+  $("recentEdit").textContent = recentEditMode ? "完了" : "編集";
+
+  // 隠した項目は編集中だけ出す（タップで戻せる）
+  $("hiddenHint").style.display = (recentEditMode && hidden.length) ? "" : "none";
+  $("hiddenChips").innerHTML = (recentEditMode ? hidden : []).map(function(n){
     return '<button type="button" class="chip" data-n="'+esc(n)+'">'+esc(n)+"</button>";
+  }).join("");
+  Array.prototype.forEach.call($("hiddenChips").children, function(b){
+    b.onclick = function(){
+      db.hiddenRecent = (db.hiddenRecent || []).filter(function(x){ return x !== b.dataset.n; });
+      save(); renderRecent(); toast("「"+b.dataset.n+"」を戻しました");
+    };
+  });
+
+  box.innerHTML = names.map(function(n){
+    return '<button type="button" class="chip'+(recentEditMode?" del":"")+'" data-n="'+esc(n)+'">'
+      + esc(n) + (recentEditMode ? " ✕" : "") + "</button>";
   }).join("");
   Array.prototype.forEach.call(box.children, function(b){
     b.onclick = function(){
       var n = b.dataset.n, c = counts[n];
+      if(recentEditMode){
+        db.hiddenRecent = (db.hiddenRecent || []).concat([n]);
+        save(); renderRecent(); toast("「"+n+"」を隠しました");
+        return;
+      }
       $("mN").value = n;
       // 別の項目を押したら前の値が残らないよう、毎回入れ替える
       $("mK").value   = c.kcal    == null ? "" : c.kcal;
@@ -2383,7 +2429,8 @@ function buildJson(){
   var payload = {
     exportedAt: new Date().toISOString(),
     appVersion: APP_VERSION,
-    body: db.body, meals: db.meals, logs: db.logs, steps: db.steps, quick: db.quick, settings: db.settings, v: 1
+    body: db.body, meals: db.meals, logs: db.logs, steps: db.steps, quick: db.quick,
+    hiddenRecent: db.hiddenRecent, settings: db.settings, v: 1
   };
   return { name:"diet-backup-"+stamp()+".json",
            text:JSON.stringify(payload, null, 2),
@@ -2530,6 +2577,7 @@ $("impReplace").addEventListener("click", function(){
       + "件 / 生活 " + db.logs.length + "件）をすべて置き換えます。よろしいですか？")) return;
     db = { body:d.body, meals:d.meals, logs:d.logs||[], steps:d.steps||{},
            quick: Array.isArray(d.quick) ? d.quick : defaultQuickItems(),
+           hiddenRecent: Array.isArray(d.hiddenRecent) ? d.hiddenRecent : [],
            settings:d.settings||{}, v:1 };
     save(); renderAll(); showImportInfo(d, "置き換え完了"); toast("読み込みました");
   });
