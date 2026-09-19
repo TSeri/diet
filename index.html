@@ -583,7 +583,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.14.2";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.14.3";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -2238,8 +2238,10 @@ $("sSave").addEventListener("click", function(){
 var qEditId = null;   // null なら新規追加
 
 // iPhoneでは狭い入力欄に絵文字を打ち直すのが難しいので、タップで選べるようにする
-var QUICK_ICONS = ("🍙 🍚 🍞 🥐 🍜 🍲 🥣 🥗 🍖 🍗 🥚 🧀 🥛 🍌 🍎 🍇 "
-                 + "🥜 🍫 🍪 🍰 🥤 ☕ 🍵 🫖 🚰 🍺 🍷 💊").split(" ");
+// 納豆・豆腐・牛丼の絵文字は存在しないため、近いもので代用している
+// （🫘=豆→納豆、🧈=白い塊→豆腐、🍛/🥩=丼もの→牛丼）
+var QUICK_ICONS = ("🍙 🍚 🍛 🍞 🥐 🍜 🍲 🥣 🥗 🫘 🧈 🍖 🥩 🍗 🥚 🧀 🥛 "
+                 + "🍌 🍎 🍇 🥜 🍫 🍪 🍰 🥤 ☕ 🍵 🫖 🚰 🍺 🍷 💊").split(" ");
 function renderIconChips(){
   var cur = $("qIcon").value.trim();
   $("qIconChips").innerHTML = QUICK_ICONS.map(function(e){
