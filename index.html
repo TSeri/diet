@@ -123,6 +123,7 @@ details[open] summary::before{content:"− "}
   border-radius:999px;padding:5px 11px;font-size:13px;cursor:pointer;
 }
 .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+#qIconChips .chip{font-size:20px;line-height:1;padding:7px 9px}
 
 canvas{width:100%;height:230px;display:block;touch-action:pan-y}
 
@@ -473,15 +474,14 @@ nav button.on{color:var(--accent)}
 
     <div id="quickEditor" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
       <div class="editbar" id="qEditBar"></div>
-      <div class="row">
-        <div class="field" style="flex:0 0 76px">
-          <label for="qIcon">アイコン</label>
-          <input type="text" id="qIcon" maxlength="4" placeholder="🍙">
-        </div>
-        <div class="field">
-          <label for="qName">名前</label>
-          <input type="text" id="qName" placeholder="おにぎり">
-        </div>
+      <div class="field">
+        <label>アイコン（タップで選ぶ）</label>
+        <div class="chips" id="qIconChips"></div>
+        <input type="text" id="qIcon" placeholder="ここに絵文字を直接入力もできます" style="margin-top:8px">
+      </div>
+      <div class="field">
+        <label for="qName">名前</label>
+        <input type="text" id="qName" placeholder="おにぎり">
       </div>
       <div class="field">
         <label for="qType">区分</label>
@@ -582,7 +582,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.14.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.14.1";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -2236,6 +2236,28 @@ $("sSave").addEventListener("click", function(){
 /* ---------- 食事のボタンの編集 ---------- */
 var qEditId = null;   // null なら新規追加
 
+// iPhoneでは狭い入力欄に絵文字を打ち直すのが難しいので、タップで選べるようにする
+var QUICK_ICONS = ("🍙 🍚 🍞 🥐 🍜 🍲 🥣 🥗 🍖 🍗 🥚 🧀 🥛 🍌 🍎 🍇 "
+                 + "🥜 🍫 🍪 🍰 🥤 ☕ 🍵 🫖 🚰 🍺 🍷 💊").split(" ");
+function renderIconChips(){
+  var cur = $("qIcon").value.trim();
+  $("qIconChips").innerHTML = QUICK_ICONS.map(function(e){
+    return '<button type="button" class="chip'+(e===cur?" on":"")+'" data-e="'+esc(e)+'">'+e+"</button>";
+  }).join("");
+  Array.prototype.forEach.call($("qIconChips").children, function(b){
+    b.onclick = function(){
+      // 同じものをもう一度押したら解除
+      $("qIcon").value = ($("qIcon").value.trim() === b.dataset.e) ? "" : b.dataset.e;
+      renderIconChips();
+    };
+  });
+}
+// 長すぎる入力でボタンが崩れないよう、先頭の数文字だけ使う
+function normalizeIcon(t){
+  var a = Array.from ? Array.from(String(t).trim()) : String(t).trim().split("");
+  return a.slice(0, 4).join("");
+}
+
 function fmtQuickInfo(q){
   var parts = [q.type || "時刻から自動"];
   parts.push((q.kcal == null ? "—" : q.kcal) + " kcal");
@@ -2265,6 +2287,7 @@ function openQuickEditor(id){
   $("qDelete").style.display = q ? "" : "none";
   $("qEditBar").textContent = q ? "編集中：" + (q.icon||"") + " " + q.name : "新しいボタン";
   $("qIcon").value    = q ? (q.icon || "") : "";
+  renderIconChips();
   $("qName").value    = q ? q.name : "";
   $("qType").value    = q ? (q.type || "") : "";
   $("qKcal").value    = q && q.kcal    != null ? q.kcal    : "";
@@ -2276,6 +2299,7 @@ function closeQuickEditor(){
   qEditId = null;
   $("quickEditor").style.display = "none";
 }
+$("qIcon").addEventListener("input", renderIconChips);
 $("qNew").addEventListener("click", function(){ openQuickEditor(null); });
 $("qCancel").addEventListener("click", closeQuickEditor);
 $("qSave").addEventListener("click", function(){
@@ -2287,7 +2311,7 @@ $("qSave").addEventListener("click", function(){
   if(sa !== null && (sa < 0 || sa > 100))  { alert("塩分は 0〜100 g の範囲で入力してください。"); return; }
 
   var item = { id: qEditId || ("q-" + uid()), name: name,
-               icon: $("qIcon").value.trim(), type: $("qType").value || null,
+               icon: normalizeIcon($("qIcon").value), type: $("qType").value || null,
                kcal: k, protein: pr, salt: sa };
   if(qEditId){
     db.quick = db.quick.map(function(x){ return x.id === qEditId ? item : x; });
