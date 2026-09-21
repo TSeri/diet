@@ -373,6 +373,32 @@ nav button.on{color:var(--accent)}
     <div class="stats" id="summary"></div>
   </div>
 
+  <div class="card" id="aiCard">
+    <h2>Claudeに相談</h2>
+    <div class="field">
+      <label>対象の期間</label>
+      <div class="chips" id="aiRangeChips"></div>
+    </div>
+    <div class="field">
+      <label>依頼する内容</label>
+      <div class="chips" id="aiTaskChips"></div>
+    </div>
+    <p class="hint" id="aiSummaryLine" style="margin:0 0 10px"></p>
+    <button class="btn" id="aiRun">依頼文をコピー</button>
+    <p class="hint" style="margin-top:8px">コピーした内容をClaudeに貼り付け、返ってきた内容を下の欄に貼り戻してください。通信は発生せず、記録が端末の外に出ることはありません。</p>
+
+    <details id="aiPasteBox" style="margin-top:12px" open>
+      <summary>Claudeの返答を貼り付ける</summary>
+      <div class="field">
+        <label for="aiPaste">返ってきた内容をそのまま貼り付けてください</label>
+        <textarea id="aiPaste" rows="4" placeholder='{"fills":[...],"review":"...","issues":[...]}'></textarea>
+      </div>
+      <button class="btn sec" id="aiApplyPaste">読み取る</button>
+    </details>
+
+    <div id="aiResult" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px"></div>
+  </div>
+
 </section>
 
 <!-- ========== グラフ ========== -->
@@ -591,7 +617,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.15.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.16.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -2404,6 +2430,232 @@ $("qReset").addEventListener("click", function(){
   toast("初期設定に戻しました");
 });
 
+/* ---------- Claudeに相談 ----------
+   依頼文をコピーしてClaudeに貼り、返ってきたJSONをアプリに貼り戻す。
+   記録を端末の外に出さないため、通信はしない。 */
+var AI_TASKS = [
+  ["fill",  "不足の推定"],
+  ["review","傾向のレビュー"],
+  ["issues","抜け・矛盾"]
+];
+var aiRange = 7;
+var aiTasks = { fill:true, review:true, issues:true };
+var aiFills = [];        // 提案された補完値
+
+function renderAiChips(){
+  var opts = [[7,"1週間"],[30,"1ヶ月"],[90,"3ヶ月"]];
+  $("aiRangeChips").innerHTML = opts.map(function(o){
+    return '<button type="button" class="chip'+(o[0]===aiRange?" on":"")+'" data-r="'+o[0]+'">'+o[1]+"</button>";
+  }).join("");
+  Array.prototype.forEach.call($("aiRangeChips").children, function(b){
+    b.onclick = function(){ aiRange = +b.dataset.r; renderAiChips(); };
+  });
+  $("aiTaskChips").innerHTML = AI_TASKS.map(function(t){
+    return '<button type="button" class="chip'+(aiTasks[t[0]]?" on":"")+'" data-t="'+t[0]+'">'+esc(t[1])+"</button>";
+  }).join("");
+  Array.prototype.forEach.call($("aiTaskChips").children, function(b){
+    b.onclick = function(){ aiTasks[b.dataset.t] = !aiTasks[b.dataset.t]; renderAiChips(); };
+  });
+  renderAiMode();
+}
+function renderAiMode(){
+  var pkg = buildAiPackage();
+  $("aiSummaryLine").textContent =
+    "送る内容：食事 " + pkg.meals.length + "件（うち値が未入力 " + pkg.missing.length + "件）・日別 " + pkg.days.length + "日ぶん";
+}
+
+// 送るデータを組み立てる。必要な範囲だけに絞って小さくする
+function buildAiPackage(){
+  var now = Date.now(), from = now - aiRange*86400000;
+  var s = db.settings || {};
+  var meals = db.meals.filter(function(m){ return new Date(m.dt).getTime() >= from; }).sort(sortDesc);
+  var missing = meals.filter(function(m){
+    return m.kcal == null || m.protein == null || m.salt == null;
+  }).map(function(m){
+    return { id:m.id, 日時:fmtDateTime(m.dt), 区分:m.type, 内容:m.name,
+             kcal:m.kcal, たんぱく質g:m.protein, 塩分g:m.salt };
+  });
+
+  // 日別の集計
+  var byDay = {};
+  function day(k){
+    if(!byDay[k]) byDay[k] = { 日付:k, kcal:0, たんぱく質g:0, 塩分g:0, 純アルコールg:0, 食事件数:0 };
+    return byDay[k];
+  }
+  meals.forEach(function(m){
+    var d = day(dayKey(m.dt));
+    d.kcal += m.kcal||0; d.たんぱく質g += m.protein||0; d.塩分g += m.salt||0;
+    d.純アルコールg += m.alc||0; d.食事件数++;
+  });
+  db.body.forEach(function(r){
+    if(new Date(r.dt).getTime() < from) return;
+    var d = day(dayKey(r.dt));
+    if(r.weight != null) d.体重kg = r.weight;
+    if(r.fat != null) d.体脂肪率 = r.fat;
+    if(r.temp != null) d.体温 = r.temp;
+    if(r.spo2 != null) d.SpO2 = r.spo2;
+    if(r.pulse != null) d.脈拍 = r.pulse;
+  });
+  sleepSessions().forEach(function(x){
+    if(new Date(x.wakeDt).getTime() < from) return;
+    day(x.day).睡眠時間h = Math.round(x.hours*10)/10;
+  });
+  db.logs.forEach(function(l){
+    if(l.kind !== "stool" || new Date(l.dt).getTime() < from) return;
+    var d = day(dayKey(l.dt)); d.排便回数 = (d.排便回数||0) + 1;
+  });
+  Object.keys(db.steps).forEach(function(k){
+    var t = new Date(k).getTime();
+    if(isFinite(t) && t >= from - 86400000) day(k).歩数 = db.steps[k];
+  });
+  var days = Object.keys(byDay).sort().map(function(k){
+    var d = byDay[k];
+    ["kcal","たんぱく質g","塩分g","純アルコールg"].forEach(function(f){
+      d[f] = Math.round(d[f]*10)/10;
+    });
+    return d;
+  });
+
+  return {
+    期間: fmtDay(dayKeyOf(new Date(from))).replace(/（[^）]*）/g,"") + " 〜 " + fmtDay(todayKey()).replace(/（[^）]*）/g,""),
+    目標: { 目標体重kg:s.goal, 目標カロリー:s.kcal, 目標たんぱく質g:s.protein,
+            塩分上限g:s.saltLimit, 純アルコール上限g:s.alcLimit, 目標歩数:s.stepGoal, 身長cm:s.height },
+    meals: meals, missing: missing, days: days
+  };
+}
+
+function aiPrompt(){
+  var pkg = buildAiPackage();
+  var asks = [];
+  if(aiTasks.fill)   asks.push('- "fills": 「値が未入力の食事」の各行について、内容名から推定した kcal・たんぱく質(g)・塩分(g) を返す。元から値がある項目は変更しない。推定できない行は含めない。各行に短い根拠を note に書く。');
+  if(aiTasks.review) asks.push('- "review": 日別データをもとにした傾向のレビュー。体重の動き、摂取カロリー・たんぱく質・塩分・飲酒・睡眠・歩数を見て、気づいた点と改善案を日本語の文章で。塩分は血圧を気にしているので必ず触れる。');
+  if(aiTasks.issues) asks.push('- "issues": 記録の抜け（記録が無い日）、二重に入っていそうな記録、値が不自然な記録を、日本語の短い箇条書きの配列で。');
+
+  return [
+    "あなたは食事と生活の記録を見る栄養サポートです。以下のJSONは私の記録です。",
+    "",
+    "回答は**JSONだけ**を返してください（前後に説明文を書かない）。形式は次のとおりです。",
+    "{",
+    '  "fills": [{"id":"記録のid","kcal":数値,"protein":数値,"salt":数値,"note":"根拠"}],',
+    '  "review": "文章",',
+    '  "issues": ["指摘", "指摘"]',
+    "}",
+    "依頼しないキーは空配列か空文字にしてください。",
+    "",
+    "依頼:",
+    asks.join("\n"),
+    "",
+    "注意: 推定はあくまで目安で、医療上の判断はしないでください。",
+    "",
+    "記録:",
+    JSON.stringify({ 期間:pkg.期間, 目標:pkg.目標, 値が未入力の食事:pkg.missing, 日別:pkg.days }, null, 1)
+  ].join("\n");
+}
+
+function renderAiResult(res){
+  var box = $("aiResult");
+  var html = "";
+  if(res.review) html += '<p class="hint" style="white-space:pre-wrap;color:var(--fg)">'+esc(res.review)+"</p>";
+  if(res.issues && res.issues.length){
+    html += '<p class="hint" style="margin-top:10px"><b>気づいた点</b></p><ul class="list">'
+      + res.issues.map(function(x){ return "<li><div class='li-main' style='cursor:default'><div class='li-n'>"+esc(x)+"</div></div></li>"; }).join("")
+      + "</ul>";
+  }
+  aiFills = (res.fills || []).filter(function(f){
+    return f && f.id && db.meals.some(function(m){ return m.id === f.id; });
+  });
+  if(aiFills.length){
+    html += '<p class="hint" style="margin-top:10px"><b>不足の推定（チェックしたものを反映します）</b></p><ul class="list" id="aiFillList">'
+      + aiFills.map(function(f, i){
+          var m = db.meals.filter(function(x){ return x.id === f.id; })[0];
+          var vals = [];
+          if(m.kcal == null && f.kcal != null) vals.push(f.kcal + " kcal");
+          if(m.protein == null && f.protein != null) vals.push("P " + f.protein + "g");
+          if(m.salt == null && f.salt != null) vals.push("塩 " + f.salt + "g");
+          if(!vals.length) return "";
+          return "<li><label class='li-main' style='display:block'>"
+            + "<input type='checkbox' class='aiFill' data-i='"+i+"' checked style='width:auto;margin-right:8px'>"
+            + "<b>"+esc(m.name)+"</b> <span class='li-t'>"+fmtDateTime(m.dt)+"</span>"
+            + "<div class='li-n'>"+esc(vals.join(" ・ "))+(f.note ? " — "+esc(f.note) : "")+"</div></label></li>";
+        }).join("")
+      + "</ul><button class='btn sec' id='aiApplyFills' style='margin-top:8px'>チェックした内容を反映</button>";
+  }
+  if(!html) html = '<p class="hint">返答に反映できる内容がありませんでした。</p>';
+  box.innerHTML = html;
+  box.style.display = "";
+  if($("aiApplyFills")) $("aiApplyFills").onclick = applyAiFills;
+}
+
+function applyAiFills(){
+  var n = 0;
+  Array.prototype.forEach.call(document.querySelectorAll(".aiFill"), function(cb){
+    if(!cb.checked) return;
+    var f = aiFills[+cb.dataset.i];
+    var m = db.meals.filter(function(x){ return x.id === f.id; })[0];
+    if(!m) return;
+    var touched = false;
+    if(m.kcal == null && f.kcal != null)       { m.kcal = f.kcal; touched = true; }
+    if(m.protein == null && f.protein != null) { m.protein = f.protein; touched = true; }
+    if(m.salt == null && f.salt != null)       { m.salt = f.salt; touched = true; }
+    if(touched){
+      var note = "[Claude推定]" + (f.note ? " " + f.note : "");
+      m.memo = m.memo ? (m.memo + " " + note) : note;
+      n++;
+    }
+  });
+  save(); renderSummary(); renderRecent(); renderAiMode();
+  toast(n + "件に反映しました");
+}
+
+// 返答からJSONを取り出す（前後に文章が付いていても拾う）
+function parseAiReply(text){
+  var t = String(text || "").trim();
+  var fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if(fence) t = fence[1].trim();
+  else {
+    var a = t.indexOf("{"), b = t.lastIndexOf("}");
+    if(a >= 0 && b > a) t = t.slice(a, b+1);
+  }
+  var o = JSON.parse(t);
+  return { fills: Array.isArray(o.fills) ? o.fills : [],
+           review: typeof o.review === "string" ? o.review : "",
+           issues: Array.isArray(o.issues) ? o.issues : [] };
+}
+
+$("aiApplyPaste").addEventListener("click", function(){
+  var raw = $("aiPaste").value;
+  if(!raw.trim()){ alert("返ってきた内容を貼り付けてください。"); return; }
+  try{
+    renderAiResult(parseAiReply(raw));
+    $("aiPaste").value = "";
+    toast("読み取りました");
+  }catch(e){
+    alert("JSONとして読み取れませんでした。\n\nClaudeの返答のうち、{ から } までをそのまま貼り付けてください。\n\n" + e.message);
+  }
+});
+
+// 依頼文をクリップボードへ。通信はしない
+$("aiRun").addEventListener("click", function(){
+  if(!aiTasks.fill && !aiTasks.review && !aiTasks.issues){
+    alert("依頼する内容を1つ以上選んでください。"); return;
+  }
+  var prompt = aiPrompt();
+  var d = { name:"claude-相談-"+stamp()+".txt", text:prompt, mime:"text/plain" };
+  function fallback(){
+    // クリップボードが使えない環境ではファイルとして渡す
+    if(canShareFiles()) shareFile(function(){ return d; }, false);
+    else saveFile(function(){ return d; }, false);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(prompt)
+      .then(function(){ toast("依頼文をコピーしました"); })
+      .catch(fallback);
+  }else{
+    fallback();
+  }
+  $("aiPasteBox").open = true;
+});
+
 /* ---------- 書き出し / 読み込み ---------- */
 function download(filename, text, mime){
   var blob = new Blob([text], {type: mime || "text/plain;charset=utf-8"});
@@ -2594,7 +2846,7 @@ function renderAll(){
   renderWeatherSelect(); renderAlcPresets(); renderQuickLog(); renderQuickDrinks();
   resetBodyForm(); resetMealForm(); resetLogForm(); resetStepForm();
   renderSummary(); renderHistChips(); renderHistory();
-  renderModeChips(); renderRangeChips(); renderRangeNav(); renderSettings();
+  renderModeChips(); renderRangeChips(); renderRangeNav(); renderAiChips(); renderSettings();
   if($("view-chart").classList.contains("active")) renderChart();
 }
 renderAll();
