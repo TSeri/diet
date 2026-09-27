@@ -461,7 +461,13 @@ nav button.on{color:var(--accent)}
   <div class="card">
     <h2>表示するもの</h2>
     <div class="chips" id="histChips"></div>
-    <p class="hint" style="margin:8px 0 0">記録をタップすると内容・日時を修正できます（🗑 で削除）。</p>
+    <div class="field" style="margin:10px 0 0">
+      <div class="dtrow">
+        <input type="search" id="histSearch" placeholder="内容・メモ・区分で検索" enterkeyhint="search">
+        <button type="button" class="btn sec" id="histClear">消す</button>
+      </div>
+    </div>
+    <p class="hint" id="histCount" style="margin:8px 0 0">記録をタップすると内容・日時を修正できます（🗑 で削除）。</p>
   </div>
   <div class="card" id="histWrap"></div>
 </section>
@@ -623,7 +629,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.16.1";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.17.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -1556,6 +1562,15 @@ function renderSummary(){
 
 /* ---------- 履歴 ---------- */
 var histFilter = "all";
+var histQuery = "";
+$("histSearch").addEventListener("input", function(){
+  histQuery = $("histSearch").value;
+  renderHistory();
+});
+$("histClear").addEventListener("click", function(){
+  $("histSearch").value = ""; histQuery = "";
+  renderHistory(); $("histSearch").focus();
+});
 function renderHistChips(){
   var opts = [["all","すべて"],["body","体組成"],["meal","食事"],["log","生活"]];
   $("histChips").innerHTML = opts.map(function(o){
@@ -1565,15 +1580,57 @@ function renderHistChips(){
     b.onclick = function(){ histFilter = b.dataset.f; renderHistChips(); renderHistory(); };
   });
 }
+// 1件ぶんの検索対象テキスト。日付・数値・メモまで拾う
+function searchTextOf(it){
+  var r = it.r, t = [fmtDateTime(r.dt), fmtDay(dayKey(r.dt)), r.memo || ""];
+  if(it.k === "body"){
+    t.push("体組成", "体重", "バイタル");
+    if(r.weight != null) t.push(r.weight + "kg");
+    if(r.fat != null) t.push(r.fat + "%", "体脂肪");
+    if(r.temp != null) t.push(r.temp + "℃", "体温");
+    if(r.spo2 != null) t.push("spo2", r.spo2);
+    if(r.pulse != null) t.push("脈拍", r.pulse);
+    if(r.weather) t.push(r.weather, "天気");
+    if(r.room != null) t.push("室温", r.room);
+    if(r.humid != null) t.push("湿度", r.humid);
+  }else if(it.k === "meal"){
+    t.push(r.name || "", r.type || "", "食事");
+    if(r.kcal != null) t.push(r.kcal + "kcal");
+    if(r.protein != null) t.push(r.protein + "g", "たんぱく質");
+    if(r.salt != null) t.push("塩分", r.salt + "g");
+    if(r.alc != null) t.push("酒", "アルコール", r.ml + "ml");
+  }else{
+    t.push(logLabel(r.kind), "生活");
+    if(r.bristol) t.push(r.bristol, BRISTOL[r.bristol]);
+  }
+  return normalizeDigits(t.join(" ")).toLowerCase();
+}
+
 function renderHistory(){
   var items = [];
   if(histFilter==="all" || histFilter==="body") db.body.forEach(function(r){ items.push({k:"body", r:r, dt:r.dt}); });
   if(histFilter==="all" || histFilter==="meal") db.meals.forEach(function(r){ items.push({k:"meal", r:r, dt:r.dt}); });
   if(histFilter==="all" || histFilter==="log")  db.logs.forEach(function(r){ items.push({k:"log",  r:r, dt:r.dt}); });
+
+  var total = items.length;
+  // 空白区切りをすべて含むものに絞る（AND検索）
+  var words = normalizeDigits(histQuery).toLowerCase().split(/\s+/).filter(Boolean);
+  if(words.length){
+    items = items.filter(function(it){
+      var t = searchTextOf(it);
+      return words.every(function(w){ return t.indexOf(w) >= 0; });
+    });
+  }
   items.sort(sortDesc);
 
+  $("histCount").textContent = words.length
+    ? "「" + histQuery.trim() + "」に一致：" + items.length + "件 / 全" + total + "件"
+    : "記録をタップすると内容・日時を修正できます（🗑 で削除）。";
+
   if(!items.length){
-    $("histWrap").innerHTML = '<div class="empty">まだ記録がありません。<br>「記録」タブから追加してください。</div>';
+    $("histWrap").innerHTML = words.length
+      ? '<div class="empty">一致する記録がありません。<br>別のことばで探すか、上の「消す」で戻してください。</div>'
+      : '<div class="empty">まだ記録がありません。<br>「記録」タブから追加してください。</div>';
     return;
   }
 
