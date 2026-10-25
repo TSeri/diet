@@ -253,8 +253,10 @@ nav button.on{color:var(--accent)}
     </div>
     <div class="field">
       <label for="mN">内容</label>
-      <input type="text" id="mN" placeholder="鶏むね肉サラダ、ごはん150g">
+      <input type="text" id="mN" placeholder="鶏むね肉サラダ、ごはん150g" autocomplete="off">
     </div>
+    <p class="hint" id="suggestHint" style="display:none;margin:-6px 0 4px">過去の記録から（タップで入力）</p>
+    <div class="chips" id="suggestChips" style="margin-bottom:10px"></div>
     <p class="hint" id="recentHint" style="display:none;margin:-6px 0 4px">
       <span id="recentLabel">よく使う内容（タップで入力）</span>
       <button type="button" class="linkbtn" id="recentEdit">編集</button>
@@ -629,7 +631,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.17.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.18.0";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -1028,7 +1030,59 @@ function renderAlcCalc(){
 $("mMl").addEventListener("input", function(){ recalcDrink(); renderAlcCalc(); });
 $("mAbv").addEventListener("input", function(){ recalcDrink(); renderAlcCalc(); });
 // 内容を手で書き換えたら、プリセットの自動計算はやめる
-$("mN").addEventListener("input", function(){ currentDrink = null; });
+// 入力中の文字で始まる過去の記録を候補に出す（前方一致）
+function pastMealIndex(){
+  var hidden = {};
+  (db.hiddenRecent || []).forEach(function(n){ hidden[n] = 1; });
+  var seen = {}, list = [];
+  db.meals.slice().sort(sortDesc).slice(0,300).forEach(function(m){
+    if(!m.name || seen[m.name] || hidden[m.name]) return;
+    seen[m.name] = 1;
+    list.push({ name:m.name, key:normalizeDigits(m.name).toLowerCase(),
+                kcal:m.kcal, protein:m.protein, salt:m.salt, ml:m.ml, abv:m.abv });
+  });
+  return list;   // 新しい順。値は直近の記録のもの
+}
+
+function renderSuggest(){
+  var q = normalizeDigits($("mN").value.trim()).toLowerCase();
+  var box = $("suggestChips"), hint = $("suggestHint");
+
+  if(!q){   // 入力が空なら「よく使う内容」に戻す
+    box.innerHTML = ""; hint.style.display = "none";
+    renderRecent();
+    return;
+  }
+  var hits = pastMealIndex().filter(function(x){
+    return x.key.indexOf(q) === 0 && x.key !== q;   // 入力そのものは出さない
+  }).slice(0,8);
+
+  // 入力中は「よく使う内容」を隠して、候補だけ見せる
+  $("recentHint").style.display = "none";
+  $("recentChips").innerHTML = "";
+  $("hiddenHint").style.display = "none";
+  $("hiddenChips").innerHTML = "";
+
+  hint.style.display = hits.length ? "" : "none";
+  box.innerHTML = hits.map(function(x, i){
+    return '<button type="button" class="chip" data-i="'+i+'">'+esc(x.name)+"</button>";
+  }).join("");
+  Array.prototype.forEach.call(box.children, function(b){
+    b.onclick = function(){
+      var x = hits[+b.dataset.i];
+      $("mN").value = x.name;
+      $("mK").value   = x.kcal    == null ? "" : x.kcal;
+      $("mP").value   = x.protein == null ? "" : x.protein;
+      $("mS").value   = x.salt    == null ? "" : x.salt;
+      $("mMl").value  = x.ml      == null ? "" : x.ml;
+      $("mAbv").value = x.abv     == null ? "" : x.abv;
+      currentDrink = drinkKeyOf(x.name);
+      renderAlcCalc();
+      box.innerHTML = ""; $("suggestHint").style.display = "none";
+    };
+  });
+}
+$("mN").addEventListener("input", function(){ currentDrink = null; renderSuggest(); });
 
 function guessType(){
   var d = sharedDate() || new Date();
@@ -1037,6 +1091,7 @@ function guessType(){
 }
 function resetMealForm(){
   recentEditMode = false;
+  $("suggestChips").innerHTML = ""; $("suggestHint").style.display = "none";
   if(editMealId) setSharedDate(new Date(), false);
   editMealId = null;
   currentDrink = null;
