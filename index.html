@@ -631,8 +631,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.18.2";      // 更新したらここと sw.js の CACHE を揃える
-var APP_BUILD   = "2026-08-26";
+var APP_VERSION = "1.18.3";      // 更新したらここと sw.js の CACHE を揃える
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
 // ワンタップで記録するもの。設定から追加・変更・削除できるのでユーザーデータとして持つ
@@ -2305,9 +2304,16 @@ function renderSettings(){
   renderBackupInfo();
   renderQuickList();
 }
+// 表示する日付は配信ファイルの更新日時から取る。
+// 定数に書くとリリースのたびに直し忘れて、古い日付が残るため
+function buildDate(){
+  var d = new Date(document.lastModified);
+  return isNaN(d) ? "" : d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+}
 function renderVersion(){
   var el = $("verInfo");
-  var head = "バージョン <b>"+APP_VERSION+"</b>（"+APP_BUILD+"）";
+  var b = buildDate();
+  var head = "バージョン <b>"+APP_VERSION+"</b>" + (b ? "（"+b+"）" : "");
   if(!("serviceWorker" in navigator) || location.protocol.indexOf("http")!==0){
     el.innerHTML = head + "<br>オフライン対応：なし（ファイルを直接開いています）";
     return;

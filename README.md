@@ -194,7 +194,7 @@ CSVは22列（種別・日時・体重kg・体脂肪率%・体温℃・SpO2%・�
 アプリの **設定タブ → バージョン** に、いま動いている版が出ます。
 
 ```
-バージョン 1.18.2（2026-11-01）
+バージョン 1.18.3（2026-11-01）
 オフライン対応：有効
 ```
 
@@ -211,16 +211,14 @@ iPhoneで更新が反映されたか確かめたいときはここを見てく�
 
 ## 更新をリリースするとき
 
-`index.html` の `APP_VERSION` / `APP_BUILD` と、`sw.js` の `CACHE` を**同じバージョンに揃えて**から push してください。
+`index.html` の `APP_VERSION` と、`sw.js` の `CACHE` を**同じバージョンに揃えて**から push してください。
 `CACHE` の名前が変わることでブラウザが新しい Service Worker として認識し、端末側に更新が届きます。
 
 ```js
 // index.html
-var APP_VERSION = "1.18.2";
-var APP_BUILD   = "2026-08-25";
-
+var APP_VERSION = "1.18.3";
 // sw.js
-var CACHE = "diet-tracker-1.18.2";
+var CACHE = "diet-tracker-1.18.3";
 ```
 
 ## データについて（大事）
