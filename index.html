@@ -631,7 +631,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.18.0";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.18.1";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -1385,14 +1385,15 @@ $("stSave").addEventListener("click", function(){
   var raw = $("stVal").value.trim();
   if(raw === ""){
     if(db.steps[k] == null){ alert("その日の歩数はまだ記録されていません。"); return; }
-    delete db.steps[k]; save(); renderSummary(); resetStepForm();
+    delete db.steps[k]; save(); renderSummary(); setStepDate(k);
     toast("その日の歩数を削除しました"); return;
   }
   var n = parseSteps(raw);
   if(n === null){ alert("歩数に数字が見つかりません。\n\n入力されている内容：" + raw.slice(0,60)); return; }
   if(n > 200000){ alert("歩数は 0〜200000 の範囲で入力してください。（読み取った値：" + n + "）"); return; }
   db.steps[k] = n;
-  save(); renderSummary(); resetStepForm();
+  // 続けて前後の日も入れられるよう、保存した日付のままにする
+  save(); renderSummary(); setStepDate(k);
   toast(fmtSteps(n) + "歩を記録しました");
 });
 
