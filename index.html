@@ -631,7 +631,7 @@ nav button.on{color:var(--accent)}
    ダイエット記録アプリ — 完全オフライン / localStorage 保存
    ============================================================ */
 
-var APP_VERSION = "1.18.1";      // 更新したらここと sw.js の CACHE を揃える
+var APP_VERSION = "1.18.2";      // 更新したらここと sw.js の CACHE を揃える
 var APP_BUILD   = "2026-08-26";
 var KEY = "diet-tracker-v1";
 var MEAL_TYPES = ["朝食","昼食","夕食","間食","飲み物"];
@@ -2322,7 +2322,7 @@ function renderVersion(){
 
 // 配信元に新しい版が無いか問い合わせる
 // 更新確認：確認中も、新しい版が見つかったあとも、いつでもやめられる
-var upd = { state:"idle", timer:null, checking:false, bound:false, pending:false };
+var upd = { state:"idle", timer:null, checking:false, pending:false, newVersion:"" };
 
 function updSet(state, msg){
   upd.state = state;
@@ -2347,58 +2347,71 @@ function updStop(){
   upd.timer = null;
 }
 
+// 配信中のファイルからバージョンを直接読む。
+// Service Worker の更新イベント頼みだと、sw.js がブラウザのHTTPキャッシュから
+// 返されて「すでに最新です」と誤判定することがあるため。
+function fetchDeployedVersion(){
+  return fetch("index.html?v=" + Date.now(), { cache: "no-store" })
+    .then(function(r){
+      if(!r.ok) throw new Error("HTTP " + r.status);
+      return r.text();
+    })
+    .then(function(t){
+      var m = t.match(/var APP_VERSION = "([^"]+)"/);
+      if(!m) throw new Error("バージョンを読み取れませんでした");
+      return m[1];
+    });
+}
+
 function updStartCheck(){
-  // 一度見つけた新しい版を「あとで」にした場合、再確認しても Service Worker は
-  // 更新済みで updatefound が起きない。取得済みであることを覚えておいて出し直す
   if(upd.pending){
-    updSet("found", "新しい版は取得済みです。「今すぐ更新」で再読み込みします。");
+    updSet("found", "新しい版 " + upd.newVersion + " を取得できます。「今すぐ更新」で切り替えます。");
     return;
   }
-  if(!("serviceWorker" in navigator) || location.protocol.indexOf("http") !== 0){
+  if(location.protocol.indexOf("http") !== 0){
     updSet("idle", "この開き方では常に最新のファイルが読み込まれます。"); return;
   }
   updSet("checking");
   upd.checking = true;
 
-  navigator.serviceWorker.getRegistration().then(function(reg){
-    if(!upd.checking) return;                       // キャンセル済み
-    if(!reg){ updStop(); updSet("idle", "オフライン対応が未登録です。"); return; }
-
-    if(!upd.bound){                                 // リスナーは1度だけ登録する
-      upd.bound = true;
-      reg.addEventListener("updatefound", function(){
-        var sw = reg.installing;
-        if(!sw) return;
-        sw.addEventListener("statechange", function(){
-          if(sw.state !== "installed") return;
-          if(!upd.checking) return;                 // やめたあとなら何もしない
-          updStop();
-          upd.pending = true;
-          updSet("found", "新しい版が見つかりました。「今すぐ更新」で再読み込みします。");
-        });
-      });
+  fetchDeployedVersion().then(function(v){
+    if(!upd.checking) return;   // キャンセル済み
+    updStop();
+    if(v === APP_VERSION){
+      updSet("idle", "すでに最新です（" + APP_VERSION + "）。");
+    }else{
+      upd.pending = true; upd.newVersion = v;
+      updSet("found", "新しい版 " + v + " があります。「今すぐ更新」で切り替えます。");
     }
-
-    upd.timer = setTimeout(function(){
-      if(!upd.checking) return;
-      updStop();
-      updSet("idle", "すでに最新です。");
-    }, 2500);
-
-    reg.update().catch(function(){
-      if(!upd.checking) return;
-      updStop();
-      updSet("idle", "確認できませんでした（オフラインかもしれません）。");
-    });
-  }).catch(function(){
+  }).catch(function(e){
     if(!upd.checking) return;
     updStop();
-    updSet("idle", "確認できませんでした。");
+    updSet("idle", "確認できませんでした（" + e.message + "）。通信状態を確かめてください。");
+  });
+}
+
+// 古いキャッシュを消してから読み込み直す。Service Worker の入れ替わり待ちに頼らない
+function updApply(){
+  $("updBtn").disabled = true; $("updBtn").textContent = "更新中…";
+  $("updCancel").style.display = "none";
+  var jobs = [];
+  if(window.caches){
+    jobs.push(caches.keys().then(function(ks){
+      return Promise.all(ks.map(function(k){ return caches.delete(k); }));
+    }).catch(function(){}));
+  }
+  if("serviceWorker" in navigator){
+    jobs.push(navigator.serviceWorker.getRegistration().then(function(reg){
+      return reg && reg.update();
+    }).catch(function(){}));
+  }
+  Promise.all(jobs).then(function(){
+    location.replace(location.pathname + "?u=" + Date.now());
   });
 }
 
 $("updBtn").addEventListener("click", function(){
-  if(upd.state === "found"){ location.reload(); return; }
+  if(upd.state === "found"){ updApply(); return; }
   updStartCheck();
 });
 
@@ -2980,7 +2993,9 @@ show(startView);   // 記録タブの判定（日時バーの表示）もここ�
 
 // ホーム画面に追加した場合のオフライン化（http/https で配信したときのみ有効）
 if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
-  navigator.serviceWorker.register("sw.js").catch(function(){ /* file:// では無視 */ });
+  // updateViaCache:"none" で sw.js をHTTPキャッシュ経由で取らせない
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
+    .catch(function(){ /* file:// では無視 */ });
 }
 </script>
 </body>
